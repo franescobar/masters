@@ -19,9 +19,9 @@ def metric(V1: np.ndarray, V2: np.ndarray) -> float:
     return np.linalg.norm(V1 - V2)
 
 
-def best_vector(target: np.ndarray,
-                V1: np.ndarray,
-                V2: np.ndarray) -> np.ndarray:
+def best_vector(
+    target: np.ndarray, V1: np.ndarray, V2: np.ndarray
+) -> np.ndarray:
     """
     Return the vector closest to 'target' according to metric().
 
@@ -37,9 +37,9 @@ def best_vector(target: np.ndarray,
         return V1 if metric(target, V1) <= metric(target, V2) else V2
 
 
-def subsetsum(powers: list[np.ndarray],
-              S: np.ndarray,
-              precision: float = 1e-2) -> tuple[float, list[int], np.ndarray]:
+def subsetsum(
+    powers: list[np.ndarray], S: np.ndarray, precision: float = 1e-2
+) -> tuple[float, list[int], np.ndarray]:
     """
     Find subset of 'powers' whose sum is closest to, but smaller than, 'S'.
 
@@ -53,9 +53,9 @@ def subsetsum(powers: list[np.ndarray],
     """
 
     # Scale both the powers and the target vector to integers
-    divisor = precision*np.linalg.norm(S) if np.linalg.norm(S) else precision
-    powers = [np.floor(power/divisor) for power in powers]
-    S = np.floor(S/divisor)
+    divisor = precision * np.linalg.norm(S) if np.linalg.norm(S) else precision
+    powers = [np.floor(power / divisor) for power in powers]
+    S = np.floor(S / divisor)
 
     # The inputs are converted to numpy arrays because all other variables are
     # numpy arrays anyway.
@@ -63,16 +63,18 @@ def subsetsum(powers: list[np.ndarray],
     T = np.array(S, dtype=np.int32)
 
     # Initialize OPT and POINT functions
-    OPT = -1*np.ones([X.shape[0]+1, T[0]+1, T[1]+1, 2], dtype=np.int32)
-    POINT = -1*np.ones([X.shape[0]+1, T[0]+1, T[1]+1, 3], dtype=np.int32)
+    OPT = -1 * np.ones([X.shape[0] + 1, T[0] + 1, T[1] + 1, 2], dtype=np.int32)
+    POINT = -1 * np.ones(
+        [X.shape[0] + 1, T[0] + 1, T[1] + 1, 3], dtype=np.int32
+    )
 
     # Implement dynamic programming solution
-    for j in range(X.shape[0]+1):
-        for tx in range(T[0]+1):
-            for ty in range(T[1]+1):
+    for j in range(X.shape[0] + 1):
+        for tx in range(T[0] + 1):
+            for ty in range(T[1] + 1):
                 # Compute vectors
                 t = np.array([tx, ty])
-                x_j = X[j-1]
+                x_j = X[j - 1]
                 x_jx = x_j[0]
                 x_jy = x_j[1]
                 # Solve subproblem using recursion
@@ -80,16 +82,18 @@ def subsetsum(powers: list[np.ndarray],
                     OPT[j][tx][ty] = np.array([0, 0])
                 else:
                     if x_jx > tx or x_jy > ty:
-                        OPT[j][tx][ty] = OPT[j-1][tx][ty]
+                        OPT[j][tx][ty] = OPT[j - 1][tx][ty]
                     else:
-                        option_1 = OPT[j-1][tx][ty]
-                        option_2 = x_j + OPT[j-1][tx - x_jx][ty - x_jy]
+                        option_1 = OPT[j - 1][tx][ty]
+                        option_2 = x_j + OPT[j - 1][tx - x_jx][ty - x_jy]
                         OPT[j][tx][ty] = best_vector(t, option_1, option_2)
                         # Save pointer to previous subproblem
                         if np.array_equal(OPT[j][tx][ty], option_1):
-                            POINT[j][tx][ty] = np.array([j-1, tx, ty])
+                            POINT[j][tx][ty] = np.array([j - 1, tx, ty])
                         else:
-                            POINT[j][tx][ty] = np.array([j-1, tx-x_jx, ty-x_jy])
+                            POINT[j][tx][ty] = np.array(
+                                [j - 1, tx - x_jx, ty - x_jy]
+                            )
 
     # To find the optimal subset, traverse POINT from corner opposite to origin
     current_j = X.shape[0]
@@ -116,7 +120,7 @@ def subsetsum(powers: list[np.ndarray],
             # And it points to a subproblem with a different target vector
             if [next_tx, next_ty] != [current_tx, current_ty]:
                 # Then x_j does belong to the solution
-                x_j = X[current_j-1]
+                x_j = X[current_j - 1]
                 solution.append(x_j)
             # In any case, update j, tx, and try to move to the next position
             current_j = next_j
@@ -139,7 +143,7 @@ def subsetsum(powers: list[np.ndarray],
     best_sum = sum(powers[i] for i in indices)
     closest_distance = metric(best_sum, S)
 
-    return closest_distance*divisor, indices, best_sum*divisor
+    return closest_distance * divisor, indices, best_sum * divisor
 
 
 # The following functions and classes facilitate the use of robust_subsetsum()
@@ -161,8 +165,9 @@ def complex2intarray(S: complex, divisor: float) -> np.ndarray:
     Convert complex number to 2D array with integer entries.
     """
 
-    return np.array([np.floor(np.real(S)/divisor),
-                     np.floor(np.imag(S)/divisor)])
+    return np.array(
+        [np.floor(np.real(S) / divisor), np.floor(np.imag(S) / divisor)]
+    )
 
 
 class Template:
@@ -195,11 +200,13 @@ class Template_set:
         Add template to the template set.
         """
 
-        T = Template(S, system)     # create template
-        self.S += T.S               # update total power (complex)
-        self.templates.append(T)    # add template to list
+        T = Template(S, system)  # create template
+        self.S += T.S  # update total power (complex)
+        self.templates.append(T)  # add template to list
 
-    def optimal_sum(self, S: complex, precision: float) -> tuple[complex, float]:
+    def optimal_sum(
+        self, S: complex, precision: float
+    ) -> tuple[complex, float]:
         """
         Solve subset-sum problem for the template set and return solution.
 
@@ -210,7 +217,9 @@ class Template_set:
         """
 
         # Scale target power and template powers so that they become integers
-        divisor = precision*np.linalg.norm(S) if np.linalg.norm(S) else precision
+        divisor = (
+            precision * np.linalg.norm(S) if np.linalg.norm(S) else precision
+        )
         S_array = complex2intarray(S, divisor)
         for T in self.templates:
             T.S_array = complex2intarray(T.S, divisor)
@@ -218,7 +227,7 @@ class Template_set:
         # Solve subset-sum problem recursively
         optimal_power = self.sigma_star(len(self.templates), S_array)
 
-        return optimal_power, metric(optimal_power, S_array)*divisor
+        return optimal_power, metric(optimal_power, S_array) * divisor
 
     def sigma_star(self, i: int, S: np.ndarray) -> np.ndarray:
         """
@@ -233,9 +242,9 @@ class Template_set:
         # Treat non-trivial cases recursively
         else:
             # In Python, Ti has index i-1
-            Ti = self.templates[i-1]
-            S1 = self.sigma_star(i-1, S)
-            S2 = Ti.S_array + self.sigma_star(i-1, S-Ti.S_array)
+            Ti = self.templates[i - 1]
+            S1 = self.sigma_star(i - 1, S)
+            S2 = Ti.S_array + self.sigma_star(i - 1, S - Ti.S_array)
             if S[0] < Ti.S_array[0] or S[1] < Ti.S_array[1]:
                 return S1
             else:
