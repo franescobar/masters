@@ -229,7 +229,7 @@ def test_generator_additions():
         gen = records.Generator(PG_MW=100, bus=PQ1, name="gen_PQ")
         sys.store_generator(gen=gen)
         assert False, "Generator added to PQ bus."
-    except:
+    except Exception:
         pass
 
     # Test that generators cannot be duplicated

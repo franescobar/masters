@@ -11,21 +11,21 @@ from random import uniform
 def test_metric():
     z1 = np.array([0, 0])
     z2 = np.array([1, 1])
-    assert metric(z1, z2) == np.sqrt(2), 'Metric is Non-Euclidean'
-    assert metric(z1, z1) < 1e-9, 'Point does not match itself'
+    assert metric(z1, z2) == np.sqrt(2), "Metric is Non-Euclidean"
+    assert metric(z1, z1) < 1e-9, "Point does not match itself"
 
 
 def test_OPT():
     z1 = np.array([0, 0])
     z2 = np.array([1, 1])
     z3 = np.array([2, 2])
-    assert np.array_equal(OPT(z1, z2, z3), z2), 'Should return closest point'
+    assert np.array_equal(OPT(z1, z2, z3), z2), "Should return closest point"
 
 
 def test_complex2intarray():
     z1 = complex2intarray(0.117 + 1.223j, 1e-3)
     z2 = np.array([117, 1223])
-    assert np.array_equal(z1, z2), 'Conversion is not working'
+    assert np.array_equal(z1, z2), "Conversion is not working"
 
 
 def powerset(iterable):
@@ -36,7 +36,7 @@ def powerset(iterable):
     """
 
     s = list(iterable)
-    return chain.from_iterable(combinations(s, r) for r in range(len(s)+1))
+    return chain.from_iterable(combinations(s, r) for r in range(len(s) + 1))
 
 
 def test_powerset():
@@ -47,7 +47,7 @@ def exhaustive(powers: complex, S: complex) -> tuple[list[complex], float]:
     """
     Solve subset-sum problem using brute force.
 
-    Be careful with the size of 'powers' as this algorithm runs in time O(2^n).
+    Be careful with the size of "powers" as this algorithm runs in time O(2^n).
     It should be used for testing purposes only.
     """
 
@@ -79,15 +79,15 @@ def test_subsetsum():
     Test the solution that uses dynamic programming.
     """
 
-    powers = [uniform(0, 0.2) + 1j*uniform(0, 0.2) for i in range(10)]
+    powers = [uniform(0, 0.2) + 1j * uniform(0, 0.2) for i in range(10)]
 
     T = Template_set()
     for S in powers:
         T.add_template(S)
 
     for precision in [1e-2, 1e-9]:
-        for S in [1+1j, 0+1j, 1, 0, 0.4 + 0.4j, 0.2 + 0.2j]:
-            print(f'Disaggregating load {S}...')
+        for S in [1 + 1j, 0 + 1j, 1, 0, 0.4 + 0.4j, 0.2 + 0.2j]:
+            print(f"Disaggregating load {S}...")
 
             # Convert to numpy arrays
             powers_array = [np.array([z.real, z.imag]) for z in powers]
@@ -99,16 +99,19 @@ def test_subsetsum():
 
             # Assert that the methods agree
             if precision == 1e-2:
-                dist_ss = subsetsum(powers_array, S_array, precision)[0]
-                assert abs(dist_os - dist_ss) < 1e-6, \
-                    'Robust method is inconsistent with direct DP'
+                dist_ss = subsetsum(
+                    powers_array, S_array, precision, return_test_values=True
+                )[0]
+                assert (
+                    abs(dist_os - dist_ss) < 1e-6
+                ), "Robust method is inconsistent with direct DP"
             elif precision == 1e-9:
-                assert abs(dist_os - dist_ex) < 1e-6, \
-                    'DP method is inconsistent with exhaustive search'
+                assert (
+                    abs(dist_os - dist_ex) < 1e-6
+                ), "DP method is inconsistent with exhaustive search"
 
 
-if __name__ == '__main__':
-
+if __name__ == "__main__":
     test_metric()
     test_OPT()
     test_complex2intarray()

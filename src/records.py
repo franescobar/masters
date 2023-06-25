@@ -45,7 +45,6 @@ class Parameter:
 
         # Otherwise, return the parameter with the specified number of digits
         else:
-
             # A zero is always printed as 0.0
             if self.value == 0:
                 return str(0.0)
@@ -91,8 +90,10 @@ class Record:
     in the child classes.
     """
 
-    def __str__(self) -> str:
+    def __lt__(self, other: "Record") -> bool:
+        return f"{self.prefix} {self.name}" < f"{other.prefix} {other.name}"
 
+    def __str__(self) -> str:
         fields = [self.prefix, self.name] + [str(p) for p in self.get_pars()]
 
         # Add default delimiter if not specified
@@ -173,6 +174,8 @@ class DCTL(Record):
     Parent class for DCTLs (discrete controllers) in RAMSES.
 
     It simply inherits __str__() from the Record class.
+
+    This class is useful in experiment.py, to recognize the observable type.
     """
 
     pass
@@ -195,8 +198,9 @@ class Bus(Record):
         B_pu: float,
         base_kV: float,
         bus_type: str,
-        V_min_pu: float = 0.95,
-        V_max_pu: float = 1.05,
+        V_min_pu: float,
+        V_max_pu: float,
+        name: str,
     ) -> None:
         """
         Options for bus_type are 'Slack', 'PV', and 'PQ'.
@@ -210,24 +214,97 @@ class Bus(Record):
         # Set attributes used internally
         self.P_to_network_pu = np.nan
         self.Q_to_network_pu = np.nan
-        self.allocated_P_pu = PL_pu
-        self.allocated_Q_pu = QL_pu
+        self.allocated_PL_pu = PL_pu
+        self.allocated_QL_pu = QL_pu
         self.scheduled_v_pu = (
             V_pu if bus_type == "Slack" or bus_type == "PV" else ""
         )
-        self.name = ""
         self.location = ""
         self.pars = [Parameter("nominal_kV", base_kV)]
         self.has_stiff_load = False
         self.is_connected = True  # toggle to False if bus ends up in an island
 
     def get_phasor_V(self) -> complex:
-
         return self.V_pu * np.exp(1j * self.theta_radians)
 
     def get_pars(self) -> list[Parameter]:
-
         return self.pars
+
+    def change_base_power(self, Sb_old: float, Sb_new: float) -> None:
+        """
+        Change the power base of the bus.
+        """
+
+        # Change powers in pu
+        for attr in ["PL_pu", "QL_pu", "allocated_PL_pu", "allocated_QL_pu"]:
+            setattr(
+                self,
+                attr,
+                change_base(
+                    quantity=getattr(self, attr),
+                    Sb_old=Sb_old,
+                    Sb_new=Sb_new,
+                    type="S",
+                ),
+            )
+
+        # Change admittances in pu
+        for attr in ["G_pu", "B_pu"]:
+            setattr(
+                self,
+                attr,
+                change_base(
+                    quantity=getattr(self, attr),
+                    Sb_old=Sb_old,
+                    Sb_new=Sb_new,
+                    type="Y",
+                ),
+            )
+
+
+class Slack(Bus):
+    """
+    Slack bus, which is a bus with a fixed voltage magnitude and angle.
+
+    In the sorted list of buses, the slack bus is always the first one,
+    hence the implementation of __lt__().
+    """
+
+    def __lt__(self, other: Bus) -> bool:
+        """
+        Slack bus must always come first in the sorted list of buses.
+        """
+
+        return True
+
+
+class PQ(Bus):
+    """
+    PQ bus, which has fixed active and reactive power injections.
+    """
+
+    def __lt__(self, other: Bus) -> bool:
+        """
+        PQ buses must always come between the slack bus and the PV buses.
+
+        Another way of saying this is that the PQ buses must always come
+        after the existing slack and PQ buses, but before PV buses.
+        """
+
+        return isinstance(other, PV)
+
+
+class PV(Bus):
+    """
+    PV bus, which has fixed active power injection and voltage magnitude.
+    """
+
+    def __lt__(self, other: Bus) -> bool:
+        """
+        PV buses must always come last in the sorted list of buses.
+        """
+
+        return False
 
 
 class Thevenin(Record):
@@ -238,12 +315,10 @@ class Thevenin(Record):
     prefix: str = "INJEC THEVEQ"
 
     def __init__(self, name: str, bus: Bus) -> None:
-
         self.name = name
         self.bus = bus
 
     def get_pars(self) -> list[Parameter]:
-
         return [
             Parameter("bus", self.bus.name),
             Parameter("FP", 1),
@@ -265,12 +340,10 @@ class Frequency(Record):
     prefix: str = "FNOM"
 
     def __init__(self, fnom: float) -> None:
-
         self.name = ""
         self.pars = [Parameter("FNOM", fnom)]
 
     def get_pars(self) -> list[Parameter]:
-
         return self.pars
 
 
@@ -282,7 +355,6 @@ class InitialVoltage(Record):
     prefix: str = "LFRESV"
 
     def __init__(self, bus: Bus) -> None:
-
         self.name = bus.name
         self.pars = [
             Parameter("VMAG_pu", bus.V_pu, digits=8),
@@ -290,7 +362,6 @@ class InitialVoltage(Record):
         ]
 
     def get_pars(self) -> list[Parameter]:
-
         return self.pars
 
 
@@ -326,7 +397,6 @@ class SYNC_MACH(Record):
         Tq0p: float,
         Tq0pp: float,
     ) -> None:
-
         attributes = vars()
         for key in attributes:
             setattr(self, key, attributes[key])
@@ -336,7 +406,6 @@ class SYNC_MACH(Record):
         self.delimiter = ""  # empty since the exciter comes next
 
     def get_pars(self) -> list[Parameter]:
-
         pars = [
             Parameter("bus_name", self.bus.name),
             Parameter("FP", 1),
@@ -396,7 +465,6 @@ class GENERIC1(EXC, Record):
         DVMIN: float,
         DVMAX: float,
     ) -> None:
-
         attributes = vars()
         for key in attributes:
             setattr(self, key, attributes[key])
@@ -406,7 +474,6 @@ class GENERIC1(EXC, Record):
         self.ind_offset = "    "
 
     def get_pars(self) -> list[Parameter]:
-
         pars = []
 
         forbidden = ["self", "prefix", "name", "ind_offset", "delimiter"]
@@ -435,7 +502,6 @@ class CONSTANT(TOR, Record):
     prefix: str = "TOR CONSTANT"
 
     def __init__(self) -> None:
-
         self.name = ""
         self.delimiter = ";"  # no record comes next
         self.ind_offset = "    "
@@ -466,7 +532,6 @@ class HYDRO_GENERIC1(TOR, Record):
         limzdot: float,
         Tw: float,
     ) -> None:
-
         attributes = vars()
         for key in attributes:
             setattr(self, key, attributes[key])
@@ -476,7 +541,6 @@ class HYDRO_GENERIC1(TOR, Record):
         self.ind_offset = "    "
 
     def get_pars(self) -> list[Parameter]:
-
         pars = []
 
         forbidden = ["self", "prefix", "name", "ind_offset", "delimiter"]
@@ -496,11 +560,15 @@ class Generator(Record):
 
     prefix: str = "SYNC_MACH"
 
-    def __init__(self, PG_MW: float, bus: Bus) -> None:
+    def __init__(self, PG_MW: float, bus: Bus, name: str) -> None:
+        if not isinstance(bus, PV) and not isinstance(bus, Slack):
+            raise ValueError(
+                "Generator must be connected to a generation bus."
+            )
 
         self.bus = bus
         self.PG_MW = PG_MW
-        self.name = ""
+        self.name = name
         self.pars = []
         self.machine = None
         self.exciter = None
@@ -547,22 +615,18 @@ class Shunt(Injector):
     prefix: str = "SHUNT"
 
     def __init__(self, name: str, bus: Bus, Mvar_at_Vnom: float) -> None:
-
         self.name = name
         self.bus = bus
         self.Mvar_at_Vnom = Mvar_at_Vnom
         self.in_operation = True
 
     def trip(self) -> None:
-
         self.in_operation = False
 
     def trip_back(self) -> None:
-
         self.in_operation = True
 
     def get_Q(self) -> float:
-
         return (self.bus.V_pu) ** 2 * self.Mvar_at_Vnom
 
     def get_dQ_dV(self) -> float:
@@ -573,7 +637,6 @@ class Shunt(Injector):
         return 2 * self.bus.V_pu * self.Mvar_at_Vnom
 
     def get_pars(self) -> list[Parameter]:
-
         return [
             Parameter("BUS_NAME", self.bus.name),
             Parameter("Mvar_at_Vnom", self.Mvar_at_Vnom),
@@ -594,17 +657,18 @@ class Load(Injector):
 
     prefix: str = "INJEC LOAD"
 
-    def __init__(self, name: str, bus: Bus, P0: float, Q0: float) -> None:
-
-        self.allocated_P0 = P0
-        self.allocated_Q0 = Q0
+    def __init__(
+        self, name: str, bus: Bus, P0_MW: float, Q0_Mvar: float
+    ) -> None:
+        self.allocated_P0_MW = P0_MW
+        self.allocated_Q0_Mvar = Q0_Mvar
         self.V0 = 1
         self.alpha = 0
         self.beta = 0
         self.name = name
         self.bus = bus
-        self.P0 = P0
-        self.Q0 = Q0
+        self.P0_MW = P0_MW
+        self.Q0_Mvar = Q0_Mvar
         self.DP = 0
         self.A1 = 1
         self.alpha1 = self.alpha
@@ -618,9 +682,9 @@ class Load(Injector):
         self.beta2 = 0
         self.beta3 = 0
 
-    def make_dynamic(self, alpha: float, beta: float) -> None:
+    def make_voltage_sensitive(self, alpha: float, beta: float) -> None:
         """
-        Turn load into dynamic load using latest power flow solution.
+        Turn load into voltage-sensitive load using latest power flow solution.
         """
 
         self.alpha = self.alpha1 = alpha
@@ -632,14 +696,14 @@ class Load(Injector):
         Exponential load model.
         """
 
-        return -self.P0 * (self.bus.V_pu / self.V0) ** self.alpha
+        return -self.P0_MW * (self.bus.V_pu / self.V0) ** self.alpha
 
     def get_Q(self) -> float:
         """
         Exponential load model.
         """
 
-        return -self.Q0 * (self.bus.V_pu / self.V0) ** self.beta
+        return -self.Q0_Mvar * (self.bus.V_pu / self.V0) ** self.beta
 
     def get_dP_dV(self) -> float:
         """
@@ -647,7 +711,7 @@ class Load(Injector):
         """
 
         return (
-            -self.P0
+            -self.P0_MW
             * self.alpha
             * (self.bus.V_pu / self.V0) ** (self.alpha - 1)
             / self.V0
@@ -659,7 +723,7 @@ class Load(Injector):
         """
 
         return (
-            -self.Q0
+            -self.Q0_Mvar
             * self.beta
             * (self.bus.V_pu / self.V0) ** (self.beta - 1)
             / self.V0
@@ -714,10 +778,12 @@ class Branch(Record):
         to_Y_pu: complex,
         n_pu: float,
         branch_type: str,
-        sys,
+        Snom_MVA: float,
+        name: str,
+        sys: "StaticSystem",
     ) -> None:
         """
-        branch_type can be 'Line' or 'Transformer'; sys is of type pf.System.
+        branch_type can be Line or Transformer; sys is pf_static.StaticSystem.
         """
 
         # Set all keyword arguments as attributes
@@ -730,11 +796,59 @@ class Branch(Record):
             self.prefix = "LINE"
         elif branch_type == "Transformer":
             self.prefix = "TRFO"
+        else:
+            raise ValueError("Branch type must be 'Line' or 'Transformer'.")
 
-        self.name = from_bus.name + "-" + to_bus.name
-        self.Snom_MVA = 0.0
         self.in_operation = True
         self.has_OLTC = False
+
+    def __lt__(self, other: "Branch") -> bool:
+        """
+        Sort branches so that lines come before transformers.
+        """
+
+        return other.branch_type == "Transformer"
+
+    def replace_bus_by(self, old_bus: Bus, new_bus: Bus) -> None:
+        """
+        Repalce old_bus by new_bus.
+        """
+
+        if old_bus is self.from_bus:
+            self.from_bus = new_bus
+        elif old_bus is self.to_bus:
+            self.to_bus = new_bus
+
+    def change_base_power(self, Sb_old: float, Sb_new: float) -> None:
+        """
+        Change the power base of the branch.
+        """
+
+        # Change impedances
+        for attr in ["R_pu", "X_pu"]:
+            setattr(
+                self,
+                attr,
+                change_base(
+                    quantity=getattr(self, attr),
+                    Sb_old=Sb_old,
+                    Sb_new=Sb_new,
+                    type="Z",
+                ),
+            )
+
+        # Change admittances
+        for attr in ["from_Y_pu", "to_Y_pu"]:
+            setattr(
+                self,
+                attr,
+                change_base(
+                    quantity=getattr(self, attr),
+                    Sb_old=Sb_old,
+                    Sb_new=Sb_new,
+                    type="Y",
+                ),
+            )
 
     def touches(self, location: str) -> bool:
         """
@@ -781,6 +895,33 @@ class Branch(Record):
             else self.to_bus
         )
 
+    def get_pu_flows(self) -> tuple[float, float, float, float, float]:
+        """
+        Get (P_from, Q_from, P_to, Q_to) in MW and Mvar, entering the branch.
+        """
+
+        V_from = self.from_bus.get_phasor_V()
+        V_to = self.to_bus.get_phasor_V()
+
+        I_from = (V_from - V_to) / (
+            self.R_pu + 1j * self.X_pu
+        ) + V_from * self.from_Y_pu
+        I_to = (V_to - V_from) / (
+            self.R_pu + 1j * self.X_pu
+        ) + V_to * self.to_Y_pu
+
+        S_from = V_from * np.conj(I_from)
+        S_to = V_to * np.conj(I_to)
+
+        P_from = S_from.real
+        Q_from = S_from.imag
+        P_to = S_to.real
+        Q_to = S_to.imag
+
+        P_losses = max(abs(P_from), abs(P_to)) - min(abs(P_from), abs(P_to))
+
+        return P_from, Q_from, P_to, Q_to, P_losses
+
     def add_OLTC(
         self,
         positions_up: int,
@@ -804,9 +945,7 @@ class Branch(Record):
         self.has_OLTC = True
 
     def get_pars(self) -> list[Parameter]:
-
         if self.branch_type == "Line":
-
             base_kV = self.from_bus.base_kV
             half_WC_pu = np.imag(self.from_Y_pu)
 
@@ -826,7 +965,6 @@ class Branch(Record):
             ]
 
         elif self.branch_type == "Transformer":
-
             # Yes: from_bus and to_bus seem to be inverted
             return [
                 Parameter("bus1", self.to_bus.name),
@@ -892,7 +1030,7 @@ class OLTC:
             setattr(self, key, attributes[key])
 
         # Infer parameters of the OLTC
-        self.pos = 0  # position of the mechanism
+        self.pos = 0  # position of the mechanism (probably wrong)
         self.nmin_pu = 1 - self.positions_down * self.step_pu
         self.nmax_pu = 1 + self.positions_up * self.step_pu
         self.controlled_bus = trafo.to_bus
@@ -930,7 +1068,7 @@ class OLTC:
 
         This method's output is defined by increase_voltages() and
         reduce_voltages(). Returning this boolean is useful in the method
-        match_power() of System to ensure termination.
+        match_power() of StaticSystem to ensure termination.
         """
 
         if self.controlled_bus.V_pu < self.v_setpoint_pu - self.half_db_pu:
@@ -1002,7 +1140,6 @@ class DERA(Injector):
         VtripFlag: float = 1.0,
         Tv: float = 0.02,
     ) -> None:
-
         attributes = vars()
         for key in attributes:
             setattr(self, key, attributes[key])
@@ -1022,7 +1159,6 @@ class DERA(Injector):
         return self.Q0_Mvar
 
     def get_pars(self) -> list[Parameter]:
-
         return [
             Parameter("bus", self.bus.name),
             Parameter("FP", 0),
@@ -1103,7 +1239,6 @@ class INDMACH1(Injector):
         B: float,
         LF: float,
     ) -> None:
-
         attributes = vars()
         for key in attributes:
             setattr(self, key, attributes[key])
@@ -1127,7 +1262,6 @@ class INDMACH1(Injector):
         return -self.Q0_Mvar
 
     def get_pars(self) -> list[Parameter]:
-
         return [
             Parameter("bus", self.bus.name),
             Parameter("FP", 0),

@@ -8,7 +8,6 @@ import matplotlib.pyplot as plt
 
 
 def test_Timer():
-
     # Test Timer with name
     with Timer("Test Timer"):
         time.sleep(0.1)
@@ -53,7 +52,6 @@ def test_var2mho():
 
 
 def test_change_base():
-
     assert np.isclose(
         change_base(quantity=2, Sb_old=200e6, Sb_new=100e6, type="S"), 4
     ), "Power conversion is not working"
@@ -80,14 +78,12 @@ def test_cvxopt_solve_qp():
 
 
 def test_distance():
-
     x1 = np.array([1, 1])
     x2 = np.array([2, 2])
     assert np.isclose(distance(x1, x2), np.sqrt(2)), "distance is not working"
 
 
 def test_get_deviation():
-
     # Deviation of 180 degrees
     x1 = (1, 1)
     x2 = (2, 2)
@@ -135,7 +131,6 @@ def test_get_deviation():
 
 
 def test_remove_duplicates():
-
     x = [0, 3, 4, 4, 5]
     y = list(map(lambda xi: xi**2 + 1, x))
 
@@ -164,7 +159,6 @@ def test_remove_duplicates():
 
 
 def test_introduce_fixed_points():
-
     x = [0, 3, 4, 5]
     y = list(map(lambda xi: 2 * xi + 1, x))
 
@@ -204,7 +198,6 @@ def test_reduce():
 
 
 if __name__ == "__main__":
-
     test_Timer()
     test_pol2rect()
     test_rect2pol()

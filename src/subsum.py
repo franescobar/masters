@@ -38,22 +38,27 @@ def best_vector(
 
 
 def subsetsum(
-    powers: list[np.ndarray], S: np.ndarray, precision: float = 1e-2
+    powers: list[np.ndarray],
+    S: np.ndarray,
+    precision: float = 1e-2,
+    return_test_values: bool = False,
 ) -> tuple[float, list[int], np.ndarray]:
     """
     Find subset of 'powers' whose sum is closest to, but smaller than, 'S'.
 
-    The function returns the distance between the sum of the subset and 'S', the
-    indices of the elements of 'powers' that belong to the subset, and the sum
-    of the subset.
+    The function returns the distance between the sum of the subset and 'S',
+    the indices of the elements of 'powers' that belong to the subset, and
+    the sum of the subset.
 
-    Interesting fact, found on April 14th, 2022: the algorithm returns the wrong
-    indices if all elements of 'powers' are the same. This is solved by removing
-    elements from 'solution' as soon as I reported their index.
+    Interesting fact, found on April 14th, 2022: the algorithm returns the
+    wrong indices if all elements of 'powers' are the same. This is solved by
+    removing elements from 'solution' as soon as I reported their index.
     """
 
     # Scale both the powers and the target vector to integers
     divisor = precision * np.linalg.norm(S) if np.linalg.norm(S) else precision
+    original_powers = powers
+    original_S = S
     powers = [np.floor(power / divisor) for power in powers]
     S = np.floor(S / divisor)
 
@@ -140,16 +145,21 @@ def subsetsum(
             solution.remove(list(X[i]))
 
     # Having found the indices, compute the best sum and its distance to S
-    best_sum = sum(powers[i] for i in indices)
-    closest_distance = metric(best_sum, S)
+    best_sum = sum(original_powers[i] for i in indices)
+    closest_distance = metric(best_sum, original_S)
 
-    return closest_distance * divisor, indices, best_sum * divisor
+    if return_test_values:
+        best_sum = sum(powers[i] for i in indices)
+        closest_distance = metric(best_sum, S)
+        return closest_distance * divisor, indices, best_sum * divisor
+    else:
+        return closest_distance, indices, best_sum
 
 
 # The following functions and classes facilitate the use of robust_subsetsum()
 # for load disaggregation. To facilitate using them from the power-flow module,
-# these classes receive complex numbers as inputs, but convert them to arrays of
-# integers before calling subsetsum().
+# these classes receive complex numbers as inputs, but convert them to arrays
+# of integers before calling subsetsum().
 
 
 def OPT(V1: np.ndarray, V2: np.ndarray, S: np.ndarray) -> np.ndarray:
@@ -175,11 +185,9 @@ class Template:
     A template is a network whose power consumption is a complex number.
     """
 
-    def __init__(self, S: complex, system=None) -> None:
-        """
-        The optional argument 'system' is an instance of pf.System.
-        """
-
+    def __init__(
+        self, S: complex, system: "pf_static.StaticSystem" = None
+    ) -> None:
         self.S = S
         self.S_array = None
         self.system = system
@@ -191,7 +199,6 @@ class Template_set:
     """
 
     def __init__(self) -> None:
-
         self.S = 0
         self.templates = []
 
@@ -212,8 +219,8 @@ class Template_set:
 
         This method is only implemented to validate robust_subsetsum().
 
-        For testing purposes, the method also returns the distance between S and
-        the subset's power consumption.
+        For testing purposes, the method also returns the distance between S
+        and the subset's power consumption.
         """
 
         # Scale target power and template powers so that they become integers

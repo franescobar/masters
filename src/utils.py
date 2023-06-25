@@ -14,17 +14,14 @@ class Timer:
     """
 
     def __init__(self, name: str = None) -> None:
-
         # Set name/description of the code being timed
         self.name = name
 
     def __enter__(self) -> None:
-
         # When the context is entered, simply record the current time
         self.tstart = time.time()
 
     def __exit__(self, type, value, traceback) -> None:
-
         # When the context is exited, print the elapsed time
         if self.name:
             seconds = time.time() - self.tstart
@@ -67,6 +64,8 @@ def change_base(
 
     if type == "Z":
         return quantity * Sb_new / Sb_old
+    elif type == "Y":
+        return quantity * Sb_old / Sb_new
     elif type == "S":
         return quantity * Sb_old / Sb_new
     else:
@@ -235,7 +234,6 @@ def reduce_series(
 
     # For each intermediate point (not including the extreme values)
     for i in np.arange(1, len(x) - 1, 1):
-
         # Get point and its neighbors
         prev = [x_norm[i - 1], y_norm[i - 1]]
         current = [x_norm[i], y_norm[i]]
@@ -250,7 +248,6 @@ def reduce_series(
             abs(x_norm[i] - x_new[-1]) > xtol
             or abs(y_norm[i] - y_new[-1]) > ytol
         ):
-
             # Save values and restart
             indices.append(i)
             x_new.append(x_norm[i])
@@ -316,7 +313,6 @@ def reduce(
 
     # For each iteration below a certain limit
     for i in range(0, max_iters):
-
         # Define a hard-coded speed
         speed = 1
 

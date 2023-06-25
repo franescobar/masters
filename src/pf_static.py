@@ -44,9 +44,9 @@ class StaticSystem:
     A representation of the power system.
 
     This class is the main interface between the user and the power-flow
-    solver.  It contains methods for adding buses, lines, transformers,
+    solver. It contains methods for adding buses, lines, transformers,
     generators, injectors, and controllers. It also contains methods for
-    running the power-flow study and for exporting data to RAMSES.
+    running the power-flow study and importing data from ARTERE.
     """
 
     def __init__(
@@ -602,9 +602,9 @@ class StaticSystem:
 
         M = len(self.PQ_buses)
         J11 = dS_dVa[1:, 1:].real
-        J12 = dS_dVm[1:, 1:M + 1].real
-        J21 = dS_dVa[1:M + 1, 1:].imag
-        J22 = dS_dVm[1:M + 1, 1:M + 1].imag
+        J12 = dS_dVm[1:, 1 : M + 1].real
+        J21 = dS_dVa[1 : M + 1, 1:].imag
+        J22 = dS_dVm[1 : M + 1, 1 : M + 1].imag
 
         self.J = np.vstack([np.hstack([J11, J12]), np.hstack([J21, J22])])
 
@@ -684,7 +684,7 @@ class StaticSystem:
 
         M = len(self.PQ_buses)
         F00 = delta_S[1:, 0].real
-        F10 = delta_S[1:M + 1, 0].imag
+        F10 = delta_S[1 : M + 1, 0].imag
 
         self.F = np.vstack([F00, F10])
 
