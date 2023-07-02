@@ -12,6 +12,7 @@ import utils
 from collections.abc import Sequence
 import random
 import copy
+import os
 
 # Other modules
 import numpy as np
@@ -550,7 +551,9 @@ def get_nordic(solve: bool = True) -> StaticSystem:
     """
 
     nordic = StaticSystem.import_ARTERE(
-        filename="networks/Nordic/Nordic test system/lf_A.dat",
+        filename=os.path.join(
+            "networks", "Nordic", "Nordic test system", "lf_A.dat"
+        ),
         system_name="Nordic Test System - Case A",
         use_injectors=True,
     )
