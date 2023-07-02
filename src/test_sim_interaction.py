@@ -98,14 +98,13 @@ def get_disturbance_examples() -> (
         Disturbance,
         Disturbance,
         Disturbance,
-        Disturbance,
     ]
 ):
     """
     Return dummy examples of disturbances for testing purposes.
     """
 
-    bus, branch, gen, exc, inj, shunt, dctl = get_record_examples()
+    bus, branch, _, _, inj, _, dctl = get_record_examples()
 
     # Test initialization of disturbances on buses
     dist_bus = Disturbance(
@@ -285,6 +284,36 @@ def test_Disturbance():
     assert dist_inj != dist_inj_4, "Disturbances should not be equal."
 
     return dist_bus, dist_branch, dist_inj, dist_dctl, dist_solver
+
+
+def get_observable_examples() -> (
+    tuple[
+        Observable,
+        Observable,
+        Observable,
+        Observable,
+        Observable,
+        Observable,
+    ]
+):
+    """
+    Return dummy examples of observables for testing purposes.
+
+    This function is meant to be called in other testing files. It is not
+    called in this file because test_Observable() needs to test for the
+    identity of observed objects.
+    """
+
+    bus, branch, gen, exc, inj, _, dctl = get_record_examples()
+
+    obs_bus = Observable(observed_object=bus, obs_name="BV")
+    obs_branch = Observable(observed_object=branch, obs_name="PF")
+    obs_gen = Observable(observed_object=gen, obs_name="PG")
+    obs_exc = Observable(observed_object=exc, obs_name="EFD")
+    obs_inj = Observable(observed_object=inj, obs_name="P")
+    obs_dctl = Observable(observed_object=dctl, obs_name="P")
+
+    return obs_bus, obs_branch, obs_gen, obs_exc, obs_inj, obs_dctl
 
 
 def test_Observable():
