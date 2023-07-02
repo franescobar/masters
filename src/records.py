@@ -178,7 +178,10 @@ class DCTL(Record):
     This class is useful in experiment.py, to recognize the observable type.
     """
 
-    pass
+    prefix: str = "DCTL"
+
+    def get_pars(self) -> list[Parameter]:
+        return []
 
 
 class Bus(Record):
