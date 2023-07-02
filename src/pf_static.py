@@ -828,7 +828,7 @@ class StaticSystem:
         """
 
         # Initialize system and containers
-        sys = StaticSystem(name=system_name, base_MVA=base_MVA)
+        sys = cls(name=system_name, base_MVA=base_MVA)
         bus_types = {}  # bus_name: bus_type
         bus_objects = {}  # bus_name: bus_object
         v_setpoints = {}  # gen_name: V_pu
