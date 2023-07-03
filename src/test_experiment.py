@@ -15,6 +15,7 @@ from test_sim_interaction import (
 )
 from test_pf_dynamic import get_dynamic_nordic
 import control
+import records
 
 # Modules from the standard library
 import os
@@ -35,9 +36,7 @@ def test_get_timestamp():
 
 
 # Create dummy DLL file
-dummy_dll_path = "dummy_dll.dll"
-with open(dummy_dll_path, "w") as f:
-    f.write("")
+dummy_dll_path = r"C:\Users\FranciscoEscobarPrad\Desktop"
 
 
 def get_experiments() -> tuple[Experiment, Experiment]:
@@ -673,27 +672,81 @@ def test_run_simulation():
     Test the execution of a single simulation.
     """
 
-    nordic = get_dynamic_nordic()
-
-    exp = Experiment(
-        name="run_sim()",
-        DLL_dir="CHANGE",
+    # Import both the static and the dynamic data of the Nordic
+    nordic = get_dynamic_nordic(solve=True)
+    nordic.import_dynamic_data(
+        filename=os.path.join(
+            "networks",
+            "Nordic",
+            "Nordic test system",
+            "dyn_A.dat"
+        )
     )
 
-    exp.add_system(description="Nordic", system=nordic)
+    # Make all loads voltage sensitive. Otherwise, the syste, will be small-
+    # signal unstable and the simulation will diverge after a few seconds.    
+    for injector in nordic.injectors:
+        if isinstance(injector, records.Load):
+            # These are the values recommended by the Task Force:
+            injector.make_voltage_sensitive(alpha=1, beta=2)
 
+    # Initialie experiment
+    exp = Experiment(
+        name="run_sim()",
+    )
+
+    # Add the system
+    exp.add_system(description="Nordic", system=nordic)
+    
+    # As a single observable, add the voltage magnitude at bus 4041.
+    obs = sim_interaction.Observable(
+        observed_object=nordic.get_bus(name="4041"),
+        obs_name="BV"
+    )
+    exp.add_observables(obs)
+
+    # Create the directory test_sim() for the simulation, as well as the input
+    # and output directories. We prefer to create these directories from
+    # scratch to decouple this test from that of self.init_files_and_dirs.
     dir = "test_sim"
     if not os.path.isdir(dir):
         os.mkdir(dir)
     else:
-        raise RuntimeError("Directory 'test_sim' already exists.")
+        delete = input("Directory test_sim already exists. Remove? (y/n)")
+        if delete == "y":
+            shutil.rmtree(dir)
+            os.mkdir(dir)
+        else:
+            print("Exiting...")
+    os.mkdir(os.path.join(dir, "0_Input"))
+    os.mkdir(os.path.join(dir, "1_RAMSES output"))
 
+    # Add the observables file:
+    with open(os.path.join(dir, "0_Input", exp.obse_filename), "w") as f:
+        f.write(exp.get_observables_str())
+
+    # Add the settings file:
+    with open(os.path.join(dir, "0_Input", exp.sett_filename), "w") as f:
+        f.write(exp.get_settings_str())
+
+    # Add the disturbance file with the solver settings and the horizon:
+    with open(os.path.join(dir, "0_Input", exp.dist_filename), "w") as f:
+        f.write(exp.get_solver_and_horizon_str())
+
+    # Run the actual simulation.
     exp.run_simulation(
         cwd=dir,
         sys=nordic,
     )
 
-    looks_nice = input("Does the simulation look correct? (y/n) ")
+    # Visualize the only voltage that was added to the observables.
+    import pyramses
+    data = pyramses.extractor(os.path.join(dir, "1_RAMSES output", exp.traj_filename))
+    data.getBus("4041").mag.plot()
+
+    # Since no disturbances were applied, the plotted voltage should be a
+    # horizontal line.
+    looks_nice = input("Is the plotted voltage a straight line? (y/n) ")
 
     # Erase directory before raising AssertionError
     shutil.rmtree(dir)
@@ -750,7 +803,8 @@ if __name__ == "__main__":
     test_case2str()
     test_init_files_and_dirs()
     test_str()
-    # test_run()
+    test_run_simulation()
+    test_run()
     test_build_visualizations()  # Not implemented yet
     test_analyze_experiment()  # Not implemented yet
     test_document_experiment()  # Not implemented yet

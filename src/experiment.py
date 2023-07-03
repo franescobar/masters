@@ -20,8 +20,9 @@ import numpy as np
 try:
     import pyramses
     from pyramses import simulator
+    print("Module 'pyramses' was succesfully imported!")
 except ModuleNotFoundError:
-    pass
+    print("Module 'pyramses' could not be imported!")
 
 
 def get_timestamp(
@@ -124,7 +125,7 @@ class Experiment:
     def __init__(
         self,
         name: str,
-        DLL_dir: str,
+        DLL_dir: Union[str, None] = None,
         repetitions: int = 1,
         must_document=False,
     ) -> None:
@@ -133,7 +134,7 @@ class Experiment:
                 "Experiment name must not exceed 10 characters."
             )
 
-        if not os.path.exists(DLL_dir):
+        if DLL_dir is not None and not os.path.isdir(DLL_dir):
             raise RuntimeError(
                 f"RAMSES DLL directory {DLL_dir} does not exist."
             )
@@ -667,8 +668,8 @@ class Experiment:
             case.addCont(map2out(self.cont_filename))  # continuous trace, slow
             case.addDisc(map2out(self.disc_filename))  # discrete trace, slow
 
-        # Create simulation instance
-        sys.ram = pyramses.sim()
+        # Create simulation instance using the custom DLL
+        sys.ram = pyramses.sim(custLibDir=self.DLL_dir)
         sys.ram.execSim(case, 0)
 
         # Get bus names
@@ -693,6 +694,7 @@ class Experiment:
                 if tk > self.disturbance_window and not all(
                     vmin < v < vmax for v in voltages
                 ):
+                    print("\nThere are undervoltages after the disturbance window.")
                     break
                 sys.ram.contSim(tk)
             except:
@@ -717,9 +719,6 @@ class Experiment:
         This run can include multiple systems, multiple controllers, multiple
         sets of disturbances, and multiple randomizations.
         """
-
-        # Update the DLL directory
-        simulator.__new__libdir__ = self.DLL_dir
 
         # Add observables from visualizations
 
