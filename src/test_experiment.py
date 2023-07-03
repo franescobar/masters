@@ -13,6 +13,7 @@ from test_sim_interaction import (
     get_disturbance_examples,
     get_observable_examples,
 )
+from test_pf_dynamic import get_dynamic_nordic
 import control
 
 # Modules from the standard library
@@ -666,6 +667,38 @@ def test_str():
         "No description was provided."
     ), "Experiment string is incorrect."
 
+
+def test_run_simulation():
+    """
+    Test the execution of a single simulation.
+    """
+
+    nordic = get_dynamic_nordic()
+
+    exp = Experiment(
+        name="run_sim()",
+        DLL_dir="CHANGE",
+    )
+
+    exp.add_system(description="Nordic", system=nordic)
+
+    dir = "test_sim"
+    if not os.path.isdir(dir):
+        os.mkdir(dir)
+    else:
+        raise RuntimeError("Directory 'test_sim' already exists.")
+
+    exp.run_simulation(
+        cwd=dir,
+        sys=nordic,
+    )
+
+    looks_nice = input("Does the simulation look correct? (y/n) ")
+
+    # Erase directory before raising AssertionError
+    shutil.rmtree(dir)
+
+    assert looks_nice == "y", "Simulation was not successful."
 
 def test_run():
     """

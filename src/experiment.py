@@ -17,6 +17,12 @@ import bisect  # for inserting observables into sorted lists
 # Other modules
 import numpy as np
 
+try:
+    import pyramses
+    from pyramses import simulator
+except ModuleNotFoundError:
+    pass
+
 
 def get_timestamp(
     opening_delimiter: str = "[", closing_delimiter: str = "]"
@@ -610,6 +616,100 @@ class Experiment:
 
         return self.description
 
+    def run_simulation(
+        self, cwd: str, sys: pf_dynamic.System, record_traces: bool = False
+    ) -> None:
+        """
+        Run simulation of a single system.
+
+        To do during the simulation:
+        - Collect measurements for visualization
+        - Collect measurements for performance metrics
+        - Time parts of the code
+        """
+
+        def map2inp(filename: str) -> str:
+            """
+            Append path to RAMSES' input folder.
+            """
+
+            return os.path.join(cwd, self.inp_dir, filename)
+
+        sys.export_to_RAMSES(map2inp(self.syst_filename))
+
+        # Configure simulation and add the input files
+        case = pyramses.cfg()
+        case.addData(map2inp(self.syst_filename))  # system description
+        case.addData(map2inp(self.sett_filename))  # RAMSES settings
+        case.addObs(map2inp(self.obse_filename))  # observables
+        case.addDst(map2inp(self.dist_filename))  # initial disturbances
+
+        def map2out(filename: str) -> str:
+            """
+            Append path to RAMSES' output folder.
+            """
+
+            return os.path.join(cwd, self.out_dir, filename)
+
+        # Add output files
+        case.addInit(map2out(self.init_filename))  # initialization trace
+        case.addTrj(map2out(self.traj_filename))  # trajectory file
+
+        # The output trace should be removed before any simulation. Otherwise,
+        # the results of previous simulations will be appended to the file and
+        # debugging will be difficult.
+        out_trace = map2out(self.outp_filename)
+        if os.path.exists(out_trace):
+            os.remove(out_trace)
+        case.addOut(out_trace)  # output trace
+
+        if record_traces:
+            case.addCont(map2out(self.cont_filename))  # continuous trace, slow
+            case.addDisc(map2out(self.disc_filename))  # discrete trace, slow
+
+        # Create simulation instance
+        sys.ram = pyramses.sim()
+        sys.ram.execSim(case, 0)
+
+        # Get bus names
+        monitored_buses = sys.ram.getAllCompNames("BUS")
+
+        # Read stopping criteria
+        vmin, vmax = self.error_voltages
+
+        # Define simulation settings (almost always constant)
+        h = self.pyramses_step
+        time_values = np.arange(0, self.horizon, h)
+
+        for tk in time_values:
+            # Display progress
+            perc = int(round(100 * tk / self.horizon))
+            if 0 < tk and np.isclose(perc % 1, 0, atol=1e-3):
+                print("", end=f"\rSimulation progress: {perc}%")
+
+            # Simulate if voltages are OK
+            try:
+                voltages = sys.ram.getBusVolt(monitored_buses)
+                if tk > self.disturbance_window and not all(
+                    vmin < v < vmax for v in voltages
+                ):
+                    break
+                sys.ram.contSim(tk)
+            except:
+                print(sys.ram.getLastErr())
+                break
+
+            # If simulation went fine
+            # sys.update_detectors()
+            # sys.follow_controllers()
+            # sys.send_disturbances_until(tk + h)
+
+        # Print empty line
+        print("")
+
+        # Finish simulation
+        sys.ram.endSim()
+
     def run(self):
         """
         Run the experiment.
@@ -618,10 +718,7 @@ class Experiment:
         sets of disturbances, and multiple randomizations.
         """
 
-        # Defer import of pyramses
-        import pyramses
-        from pyramses import simulator
-
+        # Update the DLL directory
         simulator.__new__libdir__ = self.DLL_dir
 
         # Add observables from visualizations
@@ -643,10 +740,6 @@ class Experiment:
                         # Add disturbances to the system (dis[1] is iterable)
                         sys.add_disturbances(dis[1])
 
-                        # Define simulation settings (almost always constant)
-                        h = self.pyramses_step
-                        time_values = np.arange(0, self.horizon, h)
-
                         # Make the OLTCs 'instantaneous' in terms of simulation
                         # settings
                         for OLTC in sys.OLTC_controllers:
@@ -665,144 +758,34 @@ class Experiment:
                         # Initialize directories
                         self.init_files_and_dirs()
 
-                        # Export system to RAMSES
-                        sys.export_to_RAMSES(
-                            cwd + "/" + self.inp_dir + "/" + self.syst_filename
-                        )
+                        # Run simulation
+                        self.run_simulation(cwd=cwd, sys=sys)
 
-                        def map2dir(filename):
-                            """
-                            Append path to RAMSES' input folder.
-                            """
-
-                            return cwd + "/" + self.inp_dir + "/" + filename
-
-                        # Configure simulation
-                        case = pyramses.cfg()
-                        case.addData(map2dir(self.syst_filename))
-                        case.addData(map2dir(self.sett_filename))
-                        case.addObs(map2dir(self.obse_filename))
-                        case.addDst(map2dir(self.dist_filename))
-
-                        def map2dir(filename):
-                            """
-                            Append path to RAMSES' output folder.
-                            """
-
-                            return cwd + "/" + self.out_dir + "/" + filename
-
-                        # case.addCont(map2dir(self.cont_filename))
-                        case.addInit(map2dir(self.init_filename))
-                        # case.addDisc(map2dir(self.disc_filename))
-                        name = map2dir(self.outp_filename)
-                        if os.path.exists(name):
-                            os.remove(name)
-                        case.addOut(name)
-                        case.addTrj(map2dir(self.traj_filename))
-
-                        # Create simulation instance
-                        sys.ram = pyramses.sim()
-                        sys.ram.execSim(case, 0)
-
-                        # Get bus names
-                        monitored_buses = sys.ram.getAllCompNames("BUS")
-
-                        # Read stopping criteria
-                        vmin, vmax = self.error_voltages
-
-                        for tk in time_values:
-                            # Display progress
-                            perc = int(round(100 * tk / self.horizon))
-                            if 0 < tk and abs(perc % 1) < 1e-3:
-                                print(
-                                    "", end=f"\rSimulation progress: {perc}%"
-                                )
-
-                            # Simulate if voltages are OK
-                            try:
-                                voltages = sys.ram.getBusVolt(monitored_buses)
-                                if tk > self.disturbance_window and not all(
-                                    vmin < v < vmax for v in voltages
-                                ):
-                                    break
-                                sys.ram.contSim(tk)
-                            except:
-                                print(sys.ram.getLastErr())
-                                break
-
-                            # If simulation went fine
-                            sys.update_detectors()
-                            sys.follow_controllers()
-                            sys.send_disturbances_until(tk + h)
-
-                            # To do during the simulation:
-                            # - Collect measurements for visualization
-                            # - Collect measurements for performance metrics
-                            # - Time parts of the code
-
-                        # Print empty line
-                        print("")
-
-                        # Finish simulation
-                        sys.ram.endSim()
-
-                        # # Extract all observables
-                        ext = pyramses.extractor(case.getTrj())
-                        #
-                        # # Extract observables to folder...
-                        # # To do: define a dictionary with the correct methods
-                        data = [
-                            ext.getBus(obs.observed_object.name).mag
-                            for obs in self.observables
-                            if "BUS" in str(obs)
-                        ]
-
-                        import matplotlib.pyplot as plt
-
-                        plt.figure()
-                        for i, d in enumerate(data):
-                            plt.plot(d[0], d[1])
-
-                        plt.show()
-                        # plt.figure()
-                        #
-                        # # Plot the NLIs
-                        NLI_detectors = [
-                            d for d in sys.detectors if d.type == "NLI"
-                        ]
-                        if len(NLI_detectors) > 0:
-                            NLI_1 = list(
-                                zip(*NLI_detectors[0].boundary_bus.NLI_bar)
-                            )
-                            # NLI_2 = list(zip(*NLI_detectors[1].
-                            # boundary_bus.NLI_bar))
-
-                            plt.plot(*NLI_1)
-                            # plt.plot(*NLI_2)
-                            plt.show()
+                        # Extract all observables to a folder
 
                         # Remove the trj
-                        # # Generate results
-                        # self.build_visualizations()
-                        # self.analyze_experiment()
-                        # self.document_experiment()
 
-        #             # Collect measurements for visualizations
-        #             for vis in self.visualizations:
-        #                 vis.collect_measurements()
-        #
-        #             # Collect measurements for performance metrics
-        #             for metric in metrics:
-        #                 metric.update_metric()
-        #                 # The (unsigned) difference can be found by applying
-        #                 # the fundamental theorem of calculus
+                        # Generate results
+                        self.build_visualizations()
+                        self.analyze_experiment()
+                        self.document_experiment()
+
+                    # Collect measurements for visualizations
+                    # for vis in self.visualizations:
+                    #     vis.collect_measurements()
+
+                    # # Collect measurements for performance metrics
+                    # for metric in metrics:
+                    #     metric.update_metric()
+                    #     # The (unsigned) difference can be found by applying
+                    #     # the fundamental theorem of calculus
 
     def build_visualizations(self) -> None:
         """
         Build visualizations so that they can be compiled in LaTeX.
         """
 
-    def analize_experiment(self) -> None:
+    def analyze_experiment(self) -> None:
         """
         Analyze the experiment and write results to a file.
 
