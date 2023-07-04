@@ -682,6 +682,10 @@ class Experiment:
         h = self.pyramses_step
         time_values = np.arange(0, self.horizon, h)
 
+        # Make the OLTCs 'instantaneous' in terms of simulation settings
+        for OLTC in sys.OLTC_controllers:
+            OLTC.delay_RAMSES_1 = OLTC.delay_RAMSES_2 = 3 / 4 * h
+
         for tk in time_values:
             # Display progress
             perc = int(round(100 * tk / self.horizon))
@@ -701,10 +705,11 @@ class Experiment:
                 print(sys.ram.getLastErr())
                 break
 
-            # If simulation went fine
+            # At all iterations, if the simulation went fine, update controllers
+            # and send disturbances
             # sys.update_detectors()
-            # sys.follow_controllers()
-            # sys.send_disturbances_until(tk + h)
+            sys.follow_controllers()
+            sys.send_disturbances_until(t=tk + h)
 
         # Print empty line
         print("")
@@ -741,6 +746,9 @@ class Experiment:
 
                         # Make the OLTCs 'instantaneous' in terms of simulation
                         # settings
+
+                        # THIS IS VERY IMPORTANT AND h IS CURRENTLY UNDEFINED
+
                         for OLTC in sys.OLTC_controllers:
                             OLTC.delay_RAMSES_1 = OLTC.delay_RAMSES_2 = (
                                 3 / 4 * h
