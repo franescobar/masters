@@ -542,6 +542,28 @@ class System(pf_static.StaticSystem):
 
         self.send_disturbances(disturbances=self.get_disturbances_until(t=t))
 
+    def follow_controllers(self) -> None:
+        """
+        Fetch controller commands and add disturbances to queue.
+        """
+
+        # Apply actions from non-OLTC controllers
+        if self.has_contingency():
+            for c in self.controllers:
+                if self.get_t_now() - c.t_last_action > c.period:
+                    # Apply actions
+                    self.add_disturbances(c.get_actions())
+                    # Restart controller's timer
+                    c.t_last_action = self.get_t_now()
+
+        # Apply actions from OLTCs acting autonomously
+        for OLTC in self.OLTC_controllers:
+            if (not OLTC.is_overridable) or (
+                OLTC.is_overridable
+                and not any(c.overrides_OLTCs for c in self.controllers)
+            ):
+                self.add_disturbances(OLTC.get_actions(t_now=self.get_t_now()))
+
     # def update_detectors(self) -> None:
     #     """
     #     Update values from detectors.
@@ -555,27 +577,6 @@ class System(pf_static.StaticSystem):
 #         ind_to_update = self.get_t_now() - d.t_last_measurement > d.period
 #         d.update_measurements(self.get_t_now(), ind_to_update)
 
-# def follow_controllers(self):
-#     """
-#     Fetch controller commands and add disturbances to queue.
-#     """
-
-#     # Apply actions from non-OLTC controllers
-#     if self.has_contingency():
-#         for c in self.controllers:
-#             if self.get_t_now() - c.t_last_action > c.period:
-#                 # Apply actions
-#                 self.add_disturbances(c.get_actions())
-#                 # Restart controller's timer
-#                 c.t_last_action = self.get_t_now()
-
-#     # Apply actions from OLTCs acting autonomously
-#     for OLTC in self.OLTC_controllers:
-#         if (not OLTC.is_overridable) or (
-#             OLTC.is_overridable
-#             and not any(c.overrides_OLTCs for c in self.controllers)
-#         ):
-#             self.add_disturbances(OLTC.get_actions(self.get_t_now()))
 
 # def get_twin(
 #     self, parameter_randomizations=None, measurement_corruptions=None
