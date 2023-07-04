@@ -7,6 +7,7 @@ import pf_static
 import records
 import control
 import sim_interaction
+import oltc
 
 # Modules from the standard library
 import copy
@@ -42,7 +43,7 @@ class System(pf_static.StaticSystem):
         self.disturbances: list[sim_interaction.Disturbance] = []
         self.detectors: list[control.Detector] = []
         self.controllers: list[control.Controller] = []
-        self.OLTC_controllers: list[control.OLTC_controller] = []
+        self.OLTC_controllers: list[oltc.OLTC_controller] = []
 
     def add_record(self, record: records.Record) -> None:
         """
@@ -97,13 +98,13 @@ class System(pf_static.StaticSystem):
         self.add_record(records.Frequency(fnom=fnom))
 
     def add_OLTC_controller(
-        self, OLTC_controller: control.OLTC_controller
+        self, OLTC_controller: oltc.OLTC_controller
     ) -> None:
         """
         Add a single OLTC controller to the system.
         """
 
-        if not isinstance(OLTC_controller, control.OLTC_controller):
+        if not isinstance(OLTC_controller, oltc.OLTC_controller):
             raise RuntimeError(
                 f"OLTC controller {OLTC_controller} "
                 f"is not an instance of OLTC_controller."
@@ -178,7 +179,7 @@ class System(pf_static.StaticSystem):
                     # as in the case of the MPC controller, and a record.
                     # Notice that the OLTC controller requires an instance of
                     # the (static) OLTC, which was read from the ARTERE file.
-                    DCTL = control.OLTC_controller(
+                    DCTL = oltc.OLTC_controller(
                         OLTC=transformer.OLTC,
                         delay_1=delay_1,
                         delay_2=delay_2,
@@ -317,7 +318,7 @@ class System(pf_static.StaticSystem):
             # OLTCs:
             datfile.write("\n# OLTCs\n")
             OLTCs = filter(
-                lambda r: isinstance(r, control.OLTC_controller), self.records
+                lambda r: isinstance(r, oltc.OLTC_controller), self.records
             )
             for OLTC in OLTCs:
                 datfile.write(f"{OLTC}\n")
