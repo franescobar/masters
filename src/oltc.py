@@ -261,17 +261,6 @@ class OLTC_controller(control.Controller, records.DCTL):
         # The disturbances that will be returned are stored in a list.
         dists = []
 
-        # In words, the FSM can be described as follows:
-        #
-        # 1. If the voltage is within the deadband, do nothing.
-        # 2. If the voltage is outside the deadband and the time elapsed since
-        #    the last action is greater than tau (which can take the value of
-        #    either of the delays), then move the OLTC in the direction that
-        #    will bring the voltage back within the deadband.
-        # 3. If the voltage is outside the deadband and the time elapsed since
-        #    the last action is smaller than tau, then do nothing.
-        # 4. If the voltage is outside the deadband and the time elapsed since
-
         # The following transitions are based on current measurements and
         # the states.
 
