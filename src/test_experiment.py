@@ -700,10 +700,38 @@ def test_run_simulation():
     
     # As a single observable, add the voltage magnitude at bus 4041.
     obs = sim_interaction.Observable(
-        observed_object=nordic.get_bus(name="4041"),
+        observed_object=nordic.get_bus(name="1041"),
         obs_name="BV"
     )
     exp.add_observables(obs)
+
+    # Add disturbances
+    exp.add_disturbances(
+        "4032-4044",
+        sim_interaction.Disturbance(
+            ocurrence_time=1.0,
+            object_acted_on=nordic.get_bus(name="4032"),
+            par_name="fault",
+            par_value=1e-4
+        ),
+        sim_interaction.Disturbance(
+            ocurrence_time=1.1,
+            object_acted_on=nordic.get_bus(name="4032"),
+            par_name="clearance",
+            par_value=None
+        ),
+        sim_interaction.Disturbance(
+            ocurrence_time=1.1,
+            object_acted_on=nordic.get_branches_between(
+                bus_name_1="4032",
+                bus_name_2="4044"
+            )[0],
+            par_name="status",
+            par_value=0
+        )
+    )
+
+    nordic.add_disturbances(exp.disturbances[0][1])
 
     # Create the directory test_sim() for the simulation, as well as the input
     # and output directories. We prefer to create these directories from
@@ -712,7 +740,7 @@ def test_run_simulation():
     if not os.path.isdir(dir):
         os.mkdir(dir)
     else:
-        delete = input("Directory test_sim already exists. Remove? (y/n)")
+        delete = input("Directory test_sim already exists. Remove? (y/n) ")
         if delete == "y":
             shutil.rmtree(dir)
             os.mkdir(dir)
@@ -742,7 +770,7 @@ def test_run_simulation():
     # Visualize the only voltage that was added to the observables.
     import pyramses
     data = pyramses.extractor(os.path.join(dir, "1_RAMSES output", exp.traj_filename))
-    data.getBus("4041").mag.plot()
+    data.getBus("1041").mag.plot()
 
     # Since no disturbances were applied, the plotted voltage should be a
     # horizontal line.

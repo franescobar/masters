@@ -629,6 +629,15 @@ class Experiment:
         - Time parts of the code
         """
 
+        # Define simulation settings (almost always constant)
+        h = self.pyramses_step
+        time_values = np.arange(0, self.horizon, h)
+
+        # Make the OLTCs 'instantaneous' in terms of simulation settings. This
+        # has to be done before creating the .dat file.
+        for OLTC in sys.OLTC_controllers:
+            OLTC.delay_RAMSES_1 = OLTC.delay_RAMSES_2 = 3 / 4 * h
+
         def map2inp(filename: str) -> str:
             """
             Append path to RAMSES' input folder.
@@ -677,14 +686,6 @@ class Experiment:
 
         # Read stopping criteria
         vmin, vmax = self.error_voltages
-
-        # Define simulation settings (almost always constant)
-        h = self.pyramses_step
-        time_values = np.arange(0, self.horizon, h)
-
-        # Make the OLTCs 'instantaneous' in terms of simulation settings
-        for OLTC in sys.OLTC_controllers:
-            OLTC.delay_RAMSES_1 = OLTC.delay_RAMSES_2 = 3 / 4 * h
 
         for tk in time_values:
             # Display progress
