@@ -4,8 +4,9 @@
         System -> Controller -> Detector
           ^___________|____________|
 
-    All Detectors have a method get_value(), whereas all Controllers have a
-    method get_actions().
+    All Detectors have a method get_reading() whereas all Controllers have a
+    method get_actions(). Furthermore, all detectors must have a method
+    update_measurements().
 
 """
 
@@ -23,378 +24,19 @@ import math
 import numpy as np
 import tabulate
 
-
-def average(x, N, step=1):
-    """
-    Return average of the last N elements of x, moving backwards with a step
-    (possibly) other than 1. The function returns 0 is x is empty.
-    """
-
-    slice = x[-1 : -N * step - 1 : -step]
-
-    return sum(slice) / min(N, len(slice))
-
-
-def derivative(x, dt):
-    """
-    Approximate the derivative of x using a secant line from the left.
-
-    If not enough points are given, the function returns zero.
-    """
-
-    return None if len(x) < 2 else (x[-1] - x[-2]) / dt
-
-
-def is_multiple(t, Ts, tol=1e-6):
-    """
-    Return True if the current time t is a multiple of the sampling period Ts
-    up to a tolerance tol.
-    """
-
-    return min([t % Ts, Ts - (t % Ts)]) < tol
-
-
-def remained_constant(x, tol=1e-6):
-    """
-    Return (boolean, avg), where boolean indicates if x is a constant signal up
-    to a tolerance tol and avg is the value it took (its average).
-    """
-
-    if len(x) == 0:
-        return False, 0
-    else:
-        avg = sum(x) / len(x)
-        values_near_avg = [xi for xi in x if abs(xi - avg) < tol]
-
-        if len(values_near_avg) == len(x):
-            boolean = True
-        else:
-            boolean = False
-
-        return boolean, avg
-
-
-class BoundaryBus:
-    """
-    A class used to store active power, conductance, averages, and NLI of each
-    boundary bus. This should be a less error-prone method of remembering
-    measurements than using global variables.
-
-    Two features are important:
-
-        - the constructor receives sample times as arguments, in order to avoid
-          synchronization problems with the outer simulation loop;
-        - after initializing each object, its NLI and its derivative should be
-          fetched using the get_NLI method, which simply receives PMU
-          measurements.
-    """
-
-    def __init__(self, name, delta_t, delta_T, tau_s, epsilon):
-        """
-        Initialize boundary bus.
-
-        The sampling periods are left as arguments to avoid synchronization
-        conflicts with the external simulation.
-        """
-
-        # Name (it never hurts)
-        self.name = name
-        # Sample periods
-        self.delta_t = delta_t  # 20 ms
-        self.delta_T = delta_T  # 7 s
-        self.tau_s = tau_s  # 1 s
-        # Sample numbers
-        self.M = 350
-        self.Md = 10
-        # Threshold
-        self.epsilon = epsilon
-        # Lists for time series
-        self.Gi = []
-        self.Pi = []
-        self.Gi_bar = []
-        self.Pi_bar = []
-        self.delta_Gi = []
-        self.delta_Pi = []
-        self.delta_Gi_bar = []
-        self.delta_Pi_bar = []
-        self.NLI = []
-        self.NLI_bar = []
-        self.constant_samples = 0
-
-    def update_GP(self, V, I, tk):
-        """
-        Update measurements from conductance and active power. All values
-        are saved with a unique timestamp.
-        """
-
-        G = np.real(I / V)
-        P = np.real(V * np.conj(I))
-        self.Gi.append((tk, G))
-        self.Pi.append((tk, P))
-
-    def update_NLI(self, tk, if_states):
-        """
-        Update NLI and its derivative given the phasor measurements of V and I.
-        The NLI is saved with a unique timestamp.
-
-        The NLI does not look exactly like the one from Costas' paper, but
-        this is due to differences in the P and G curves that they used. Using
-        their data, Fig. 15 from the paper could be reproduced perfectly.
-        """
-
-        # Take average from eqs. 4 and 5
-        Gi_bar = average([x[1] for x in self.Gi], self.M)
-        Pi_bar = average([x[1] for x in self.Pi], self.M)
-
-        # Save average from eqs. 4 and 5
-        self.Gi_bar.append(Gi_bar)
-        self.Pi_bar.append(Pi_bar)
-
-        if tk >= self.delta_T:
-            # Compute changes from eq. 6
-            index_diff = int(self.delta_T // self.tau_s)
-            den = self.Gi_bar[-1 - index_diff]
-            delta_Gi = self.Gi_bar[-1] - den
-            delta_Pi = self.Pi_bar[-1] - self.Pi_bar[-1 - index_diff]
-
-            # Apply test from eq. 7
-            if delta_Gi / den >= self.epsilon:
-                # Record changes from eq. 6
-                self.delta_Gi.append(delta_Gi)
-                self.delta_Pi.append(delta_Pi)
-
-                # Take average from eq. 8
-                delta_Gi_bar = average(self.delta_Gi, self.Md)
-                delta_Pi_bar = average(self.delta_Pi, self.Md)
-
-                # Compute the NLI using eq. 9
-                NLI = delta_Pi_bar / delta_Gi_bar
-                self.NLI.append(NLI)
-
-                # Apply additional filter (hardcoded as 10)
-                NLI_bar = average(self.NLI, 10)
-                self.NLI_bar.append((tk, NLI_bar))
-
-                # print('These are the lists')
-                # print(self.delta_Gi, self.delta_Pi, self.NLI)
-                #
-                # print('These are the averages')
-                # print(self.delta_Gi_bar, self.delta_Pi_bar, self.NLI_bar)
-
-            # Otherwise, if the condition is not met, append last value
-            elif len(self.NLI_bar) > 0:
-                self.NLI_bar.append((tk, self.NLI_bar[-1][1]))
-
-            # If the NLI has remained constant, increase counter
-            if (
-                len(self.NLI_bar) > 1
-                and abs(self.NLI_bar[-1][1] - self.NLI_bar[-2][1]) < 1e-4
-            ):
-                self.constant_samples += 1
-            else:
-                self.constant_samples = 0
-
-            # If NLI remained stuck at a negative value for more than 24 samples
-            if (
-                self.constant_samples > 24
-                and self.NLI_bar[-1][1] <= 0
-                and all(if_state < 0.5 for if_state in if_states)
-            ):
-                # Reset everything and mantain NLI at 0.1
-                self.delta_Gi = []
-                self.delta_Pi = []
-                self.NLI = []
-                self.NLI_bar.append((tk, 0.1))
-                self.constant_samples = 0
-
-    def get_NLI(self, tk):
-        """
-        Return NLI and its derivative at time tk.
-
-        By convention, the method returns 1 if no NLI measurements are
-        available.
-        """
-
-        # # Update NLI
-        # self.update_NLI(tk)
-
-        # Compute quantities
-        NLI_bar = 1 if len(self.NLI_bar) == 0 else self.NLI_bar[-1][1]
-        NLI_bar_prime = derivative([x[1] for x in self.NLI_bar], self.tau_s)
-
-        return NLI_bar, NLI_bar_prime
-
-
 class Detector:
     """
-    Common feature of detectors: maybe record their readings into an attribute.
+    A detector is a class with a method get_reading() that returns a float.
 
     Important: they all 'know' the system they are connected to.
     """
 
     pass
 
-
-class FieldCurrent(Detector):
-    """
-    Measure normalized if.
-    """
-
-    type = "Field current"
-
-    def __init__(self, machine_name):
-        self.sys = None
-        self.machine_name = machine_name
-        self.t_last_measurement = -np.inf
-        self.period = 20e-3
-        self.history = []
-
-    def get_required_observables(self):
-        return [
-            sim_interaction.Observable(
-                self.sys.get_generator(self.machine_name), None
-            )
-        ]
-
-    def update_measurements(self, tk, indices_to_update):
-        if indices_to_update:
-            # Get maximum current
-            exc = self.sys.get_generator(self.machine_name).exciter
-            # Measure field current
-            if_state = self.sys.ram.getObs(
-                ["EXC"], [self.machine_name], ["zdead"]
-            )[0]
-            # Store those values
-            self.history.append((tk, if_state))
-            # Reset counter
-            self.t_last_measurement = tk
-
-    def get_reading(self):
-        return self.history[-1][1] if len(self.history) > 0 else None
-
-
-class NLI(Detector):
-    type = "NLI"
-
-    def __init__(self, observed_corridor, h, delta_T, tau_s, epsilon):
-        self.sys = None
-        self.observed_corridor = observed_corridor
-        self.boundary_bus = BoundaryBus(
-            observed_corridor[0], h, delta_T, tau_s, epsilon
-        )
-        self.t_last_measurement = -np.inf * np.ones(2)
-        self.period = np.array([h, tau_s])
-
-    def get_required_observables(self):
-        observables = []
-
-        # Obtain buses
-        boundary_bus = self.observed_corridor[0]
-        sending_buses = self.observed_corridor[1]
-
-        # Add observables associated to buses
-        for bus_name in [boundary_bus] + sending_buses:
-            bus = self.sys.get_bus(bus_name)
-            observables.append(sim_interaction.Observable(bus, None))
-
-        # Add observables associated to branches
-        branches = []
-        for sending_bus in sending_buses:
-            sending_branches = self.sys.get_branches_between(
-                boundary_bus, sending_bus
-            )
-            branches += sending_branches
-
-        for branch in branches:
-            observables.append(sim_interaction.Observable(branch, None))
-
-        return observables
-
-    def measure_VI(self):
-        """
-        Implement function to measure stuff from RAMSES.
-        """
-
-        # Get list with branch names
-        boundary_bus = self.observed_corridor[0]
-        sending_buses = self.observed_corridor[1]
-        branches = [
-            b
-            for bus in sending_buses
-            for b in self.sys.get_branches_between(boundary_bus, bus)
-        ]
-        branch_names = [b.name for b in branches]
-
-        # Get measurements from RAMSES
-        powers = self.sys.ram.getBranchPow(branch_names)
-
-        # Compute P and Q
-        P = 0
-        Q = 0
-        for i, branch in enumerate(branches):
-            if boundary_bus == branch.from_bus.name:
-                P -= powers[i][0]
-                Q -= powers[i][1]
-            elif boundary_bus == branch.to_bus.name:
-                P -= powers[i][2]
-                Q -= powers[i][3]
-
-        # Compute voltage
-        v_mag = self.sys.ram.getBusVolt([boundary_bus])[0]
-        v_pha = self.sys.ram.getBusPha([boundary_bus])[0]
-
-        # Compute current indirectly
-        V = v_mag * np.exp(1j * v_pha)
-        I = np.conj((P + 1j * Q) / V)
-
-        return V, I
-
-    def update_measurements(self, tk, indices_to_update):
-        """
-        Index 1 corresponds to fast measurements, index 2 to slow ones.
-        """
-
-        # Get normalized field currents
-        if_states = [
-            d.get_reading()
-            for d in self.sys.detectors
-            if d.type == "Field current"
-        ]
-
-        if indices_to_update[0]:
-            # Measure voltage and current
-            V, I = self.measure_VI()
-            # Update G and P
-            self.boundary_bus.update_GP(V, I, tk)
-            # Restore timer
-            self.t_last_measurement[0] = tk
-
-        if indices_to_update[1]:
-            # Update NLI
-            self.boundary_bus.update_NLI(tk, if_states)
-            # Restore timer
-            self.t_last_measurement[1] = tk
-
-    def get_reading(self):
-        """
-        Get current reading of the meter.
-        """
-
-        return self.boundary_bus.get_NLI(None)[0]
-
-
-class LIVES(Detector):
-    def __init__(self):
-        pass
-
-    def get_value(self):
-        pass
-
-
 class Controller:
     """
-    All non-OLTCs controllers must have an attribute called
-    overrides_OLTCs (boolean).
+    All non-OLTCs controllers must have an attribute called overrides_OLTCs
+    (boolean).
     """
 
     overrides_OLTCs = False
@@ -410,19 +52,11 @@ class Controller:
         pass
 
 
-class Pabon_controller(Controller):
-    def __init__(self):
-        pass
-
-    def get_actions(self):
-        pass
-
-
-class Load_Shedder(Controller):
-    pass
-
-
 class MPC_controller(Controller):
+    """
+    The MPC controller that forms the basis of this thesis.
+    """
+
     overrides_OLTCs = True
 
     def __init__(self):
@@ -1323,7 +957,7 @@ class MPC_controller(Controller):
 
 class Coordinator(Controller):
     """
-    Coordinator installed at a step-down substation.
+    Coordinator installed at each step-down substation.
     """
 
     type = "Coordinator"
@@ -1484,6 +1118,10 @@ class Coordinator(Controller):
 
 
 class DERA_Controller(Controller):
+    """
+    Local controller of each DERA.
+    """
+
     type = "DER_A"
     period = np.inf
     t_last_action = 0
