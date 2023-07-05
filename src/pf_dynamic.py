@@ -565,18 +565,17 @@ class System(pf_static.StaticSystem):
             ):
                 self.add_disturbances(OLTC.get_actions(t_now=self.get_t_now()))
 
-    # def update_detectors(self) -> None:
-    #     """
-    #     Update values from detectors.
+    def update_detectors(self) -> None:
+        """
+        Update values from detectors.
 
-    #     Detectors can be NLI detectors, voltage and current meters,
-    #     and so on.
-    #     """
+        Detectors can be NLI detectors, voltage and current meters,
+        and so on.
+        """
 
-
-#     for d in self.detectors:
-#         ind_to_update = self.get_t_now() - d.t_last_measurement > d.period
-#         d.update_measurements(self.get_t_now(), ind_to_update)
+        for d in self.detectors:
+            ind_to_update = self.get_t_now() - d.t_last_measurement > d.period
+            d.update_measurements(self.get_t_now(), ind_to_update)
 
 
 # def get_twin(
