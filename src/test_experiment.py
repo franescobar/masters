@@ -16,6 +16,7 @@ from test_sim_interaction import (
 from test_pf_dynamic import get_dynamic_nordic
 import control
 import records
+import nli
 
 # Modules from the standard library
 import os
@@ -732,6 +733,32 @@ def test_run_simulation():
     )
 
     nordic.add_disturbances(exp.disturbances[0][1])
+
+    # Add the NLI detectors
+    nordic.add_detector(
+        detector=nli.NLI(
+            observed_corridor=("4041", ["4031"]),
+            h=20e-3,
+            delta_T=7,
+            tau_s=1,
+            epsilon=1e-3
+        )
+    )
+
+    nordic.add_detector(
+        detector=nli.NLI(
+            observed_corridor=("4042", ["4021", "4032"]),
+            h=20e-3,
+            delta_T=7,
+            tau_s=1,
+            epsilon=1e-3
+        )
+    )
+
+    for generator in nordic.generators:
+        nordic.add_detector(
+            detector=nli.FieldCurrent(machine_name=generator.name)
+        )
 
     # Create the directory test_sim() for the simulation, as well as the input
     # and output directories. We prefer to create these directories from

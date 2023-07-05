@@ -6,6 +6,7 @@ A module for defining experiments on power systems, run with RAMSES.
 import pf_dynamic  # for specifying the simulated system
 import sim_interaction  # for specifying disturbances and observables
 import control  # for specifying controllers
+import nli 
 
 # Modules from the standard libray
 import time  # for appending a timestamp to the experiment's name
@@ -708,7 +709,7 @@ class Experiment:
 
             # At all iterations, if the simulation went fine, update controllers
             # and send disturbances
-            # sys.update_detectors()
+            sys.update_detectors()
             sys.follow_controllers()
             sys.send_disturbances_until(t=tk + h)
 
@@ -717,6 +718,17 @@ class Experiment:
 
         # Finish simulation
         sys.ram.endSim()
+
+        import matplotlib.pyplot as plt
+
+        NLI_detectors = [d for d in sys.detectors if isinstance(d, nli.NLI)]
+
+        NLI = list(zip(*NLI_detectors[0].boundary_bus.NLI_bar))
+        plt.plot(*NLI, label="4041")
+        NLI = list(zip(*NLI_detectors[1].boundary_bus.NLI_bar))
+        plt.plot(*NLI, label="4042")
+        plt.legend()
+        plt.show()
 
     def run(self):
         """
