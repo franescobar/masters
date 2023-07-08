@@ -17,6 +17,7 @@ from test_pf_dynamic import get_dynamic_nordic
 import control
 import records
 import nli
+import visual
 
 # Modules from the standard library
 import os
@@ -685,7 +686,7 @@ def test_run_simulation():
     )
 
     # Make all loads voltage sensitive. Otherwise, the syste, will be small-
-    # signal unstable and the simulation will diverge after a few seconds.    
+    # signal unstable and the simulation will diverge after a few seconds.
     for injector in nordic.injectors:
         if isinstance(injector, records.Load):
             # These are the values recommended by the Task Force:
@@ -698,7 +699,7 @@ def test_run_simulation():
 
     # Add the system
     exp.add_system(description="Nordic", system=nordic)
-    
+
     # As a single observable, add the voltage magnitude at bus 4041.
     obs = sim_interaction.Observable(
         observed_object=nordic.get_bus(name="1041"),
@@ -760,6 +761,11 @@ def test_run_simulation():
             detector=nli.FieldCurrent(machine_name=generator.name)
         )
 
+    # Visualize the NLI
+    exp.add_visualization(
+        nli.NLI_plots(receiving_buses=["4041", "4042"])
+    )
+
     # Create the directory test_sim() for the simulation, as well as the input
     # and output directories. We prefer to create these directories from
     # scratch to decouple this test from that of self.init_files_and_dirs.
@@ -794,10 +800,10 @@ def test_run_simulation():
         sys=nordic,
     )
 
-    # Visualize the only voltage that was added to the observables.
-    import pyramses
-    data = pyramses.extractor(os.path.join(dir, "1_RAMSES output", exp.traj_filename))
-    data.getBus("1041").mag.plot()
+    # # Visualize the only voltage that was added to the observables.
+    # import pyramses
+    # data = pyramses.extractor(os.path.join(dir, "1_RAMSES output", exp.traj_filename))
+    # data.getBus("1041").mag.plot()
 
     # Since no disturbances were applied, the plotted voltage should be a
     # horizontal line.

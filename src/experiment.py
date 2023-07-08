@@ -6,7 +6,8 @@ A module for defining experiments on power systems, run with RAMSES.
 import pf_dynamic  # for specifying the simulated system
 import sim_interaction  # for specifying disturbances and observables
 import control  # for specifying controllers
-import nli 
+import nli
+import visual  # for specifying visualizations
 
 # Modules from the standard libray
 import time  # for appending a timestamp to the experiment's name
@@ -339,10 +340,20 @@ class Experiment:
         Add metrics to compare effort of network elements (can be functions).
         """
 
-    def add_visualization(self):
+    def add_visualizations(self, *visualizations: visual.Visualization) -> None:
         """
         Add an instance of the Visualization class (see visual.py).
         """
+
+        for vis in visualizations:
+            if not isinstance(vis, visual.Visualization):
+                raise RuntimeError(
+                    f"Visualization {vis} "
+                    f"is not an instance of the Visualization class."
+                )
+
+            # Visualizations need neither a description nor an ordering.
+            self.visualizations.append(vis)
 
     def set_RAMSES_settings(
         self, settings_dict: dict[str, Union[str, float]]
@@ -719,17 +730,6 @@ class Experiment:
         # Finish simulation
         sys.ram.endSim()
 
-        import matplotlib.pyplot as plt
-
-        NLI_detectors = [d for d in sys.detectors if isinstance(d, nli.NLI)]
-
-        NLI = list(zip(*NLI_detectors[0].boundary_bus.NLI_bar))
-        plt.plot(*NLI, label="4041")
-        NLI = list(zip(*NLI_detectors[1].boundary_bus.NLI_bar))
-        plt.plot(*NLI, label="4042")
-        plt.legend()
-        plt.show()
-
     def run(self):
         """
         Run the experiment.
@@ -781,29 +781,36 @@ class Experiment:
                         # Run simulation
                         self.run_simulation(cwd=cwd, sys=sys)
 
-                        # Extract all observables to a folder
+                        def map2out(filename: str) -> str:
+                            """
+                            Append path to RAMSES' output folder.
+                            """
 
-                        # Remove the trj
+                            return os.path.join(cwd, self.out_dir, filename)
+
+                        # Add output files
+                        ext = pyramses.extractor(map2out(self.traj_filename))
 
                         # Generate results
-                        self.build_visualizations()
+                        self.build_visualizations(system=sys, extractor=ext)
                         self.analyze_experiment()
                         self.document_experiment()
 
-                    # Collect measurements for visualizations
-                    # for vis in self.visualizations:
-                    #     vis.collect_measurements()
+                        # Remove the trj
+                        os.remove(map2out(filename=self.traj_filename))
 
-                    # # Collect measurements for performance metrics
-                    # for metric in metrics:
-                    #     metric.update_metric()
-                    #     # The (unsigned) difference can be found by applying
-                    #     # the fundamental theorem of calculus
+                        # Collect performance metrics (using fundamental theorem
+                        # of calculus)
 
-    def build_visualizations(self) -> None:
+    def build_visualizations(self,
+                             system: pf_dynamic.System,
+                             extractor: pyramses.extractor) -> None:
         """
         Build visualizations so that they can be compiled in LaTeX.
         """
+
+        for visualization in self.visualizations:
+            visualization.generate(system=system, extractor=extractor)
 
     def analyze_experiment(self) -> None:
         """
