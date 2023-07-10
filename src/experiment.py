@@ -257,6 +257,7 @@ class Experiment:
             "SCHEME": "DE",
             "NB_THREADS": 2,
             "SPARSE_SOLVER": "KLU",
+            "LICENSE": "apetros@pm.me 94A55D745302D072449DF2DEA71ABA678990393074634763603FDC73E4CC481D",
         }
 
         self.solver_settings = {
