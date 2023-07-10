@@ -3,7 +3,7 @@ Test functions for the 'experiment' module.
 """
 
 # Module to be tested
-from experiment import get_timestamp, Experiment
+from experiment import get_timestamp, Experiment, VoltageIntegral, ReactiveMargin, TapMovements
 
 # Modules from this repository
 import pf_dynamic
@@ -145,7 +145,7 @@ def test_Experiment_initialization():
 
     # Test initial (empty) containers
     assert exp.systems == [], "Systems should be empty."
-    assert exp.controllers == [], "Controllers should be empty."
+    # assert exp.controllers == [], "Controllers should be empty."
     assert exp.disturbances == [], "Disturbances should be empty."
     assert exp.observables == [], "Observables should be empty."
     # assert exp.randomizations == [], "Randomizations should be empty."
@@ -335,18 +335,18 @@ def test_add_controllers():
     exp.add_controllers("Test", C1, C2)
 
     assert (
-        len(exp.controllers) == 1
+        len(exp.controllers) == 2
     ), "Controllers were not added in batch to the experiment."
     assert (
-        exp.controllers[0][0] == "Test"
+        exp.controllers[1][0] == "Test"
     ), "Controller description is incorrect after addition."
 
     # Test deep copying
     assert (
-        exp.controllers[0][1][-1] is not C2
+        exp.controllers[1][1][-1] is not C2
     ), "Controllers were not added in the correct order."
     assert (
-        exp.controllers[0][1][-2] is not C1
+        exp.controllers[1][1][-2] is not C1
     ), "Controllers were not added in the correct order."
 
 
@@ -697,9 +697,6 @@ def test_run_simulation():
         name="run_sim()",
     )
 
-    # Add the system
-    exp.add_system(description="Nordic", system=nordic)
-
     # As a single observable, add the voltage magnitude at bus 4041.
     obs = sim_interaction.Observable(
         observed_object=nordic.get_bus(name="1041"),
@@ -762,9 +759,52 @@ def test_run_simulation():
         )
 
     # Visualize the NLI
-    exp.add_visualization(
-        nli.NLI_plots(receiving_buses=["4041", "4042"])
+    exp.add_visualizations(
+        visual.NLI_plots(receiving_buses=["4041", "4042"])
     )
+
+    exp.set_solver_and_horizon(
+        solver_settings_dict={}, horizon=10.0
+    )
+
+    # Add all bus voltages as observables
+    for bus in nordic.buses:
+        exp.add_observables(
+            sim_interaction.Observable(
+                observed_object=bus,
+                obs_name="BV"
+            )
+        )
+
+    # Add all field currents as observables
+    for generator in nordic.generators:
+        exp.add_observables(
+            sim_interaction.Observable(
+                observed_object=generator,
+                obs_name="if"
+            )
+        )
+
+    # Add all transformers as observables
+    for record in nordic.records:
+        if isinstance(record, records.DCTL):
+            exp.add_observables(
+                sim_interaction.Observable(
+                    observed_object=record,
+                    obs_name=None
+                )
+            )
+
+    # print(nordic.detectors)
+    # exit()
+    # Adding the system should always be the last thing.
+    exp.add_system(description="Nordic", system=nordic)
+
+    exp.add_metrics(VoltageIntegral())
+    exp.add_metrics(ReactiveMargin())
+    exp.add_metrics(TapMovements())
+
+
 
     # Create the directory test_sim() for the simulation, as well as the input
     # and output directories. We prefer to create these directories from
@@ -795,10 +835,12 @@ def test_run_simulation():
         f.write(exp.get_solver_and_horizon_str())
 
     # Run the actual simulation.
-    exp.run_simulation(
-        cwd=dir,
-        sys=nordic,
-    )
+    # exp.run_simulation(
+    #     cwd=dir,
+    #     sys=nordic,
+    # )
+
+    exp.run()
 
     # # Visualize the only voltage that was added to the observables.
     # import pyramses

@@ -36,10 +36,11 @@ class NLI_plots(Visualization):
         self.receiving_buses = receiving_buses
 
     def generate(self,
-                 system: pf_dynamic.system,
+                 system: pf_dynamic.System,
                  extractor: pyramses.extractor) -> None:
 
         NLI_detectors = (d for d in system.detectors if isinstance(d, nli.NLI))
+
 
         plt.figure()
         for detector in NLI_detectors:

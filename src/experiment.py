@@ -8,6 +8,7 @@ import sim_interaction  # for specifying disturbances and observables
 import control  # for specifying controllers
 import nli
 import visual  # for specifying visualizations
+import records
 
 # Modules from the standard libray
 import time  # for appending a timestamp to the experiment's name
@@ -50,6 +51,81 @@ class Randomization:
     def __init__(self, description: str) -> None:
         self.description = description
 
+class Metric:
+    """
+    A class for specifying performance metrics.
+    """
+
+    pass
+
+class VoltageIntegral(Metric):
+    """
+    Compute the integral of voltage deviations from their initial value.
+    """
+
+    def evaluate(self, 
+                 system: pf_dynamic.System,
+                 extractor: pyramses.extractor) -> float:
+        
+        # The computation of this metric only includes load buses, as it is
+        # their voltages what one tries to keep within limits.
+        load_buses = [bus for bus in system.buses 
+                      if any(inj.bus is bus for inj in system.injectors
+                             if isinstance(inj, records.Load))]
+        
+        # It is useful that the indicator averages the deviation across several
+        # buses, hence we consider the number of such buses.
+        N = len(load_buses)
+
+        delta_V_offset = 0
+        for bus in load_buses:
+            data = extractor.getBus(bus.name)
+            time = data.mag.time
+            voltage = data.mag.value
+            delta_t = time[-1] - time[0]
+            integrand = np.abs(voltage - voltage[0])
+            delta_V_offset += np.trapz(x=time, y=integrand) / delta_t / N
+        
+        return delta_V_offset
+        
+class ReactiveMargin(Metric):
+    """
+    A measure of the reactive power that remains from synchronous machines.
+    """
+
+    def evaluate(self,
+                 system: pf_dynamic.System,
+                 extractor: pyramses.extractor) -> float:
+        
+        N = len(system.generators)
+
+        margin = 0
+        for generator in system.generators:
+            data = extractor.getExc(syncname=generator.name)
+            data = getattr(data, "if")
+            time = data.time
+            field_current = data.value
+            delta_t = time[-1] - time[0]
+            integrand = float(generator.exciter.iflim) - field_current
+            margin += np.trapz(x=time, y=integrand) / delta_t / N
+
+        return margin
+
+class TapMovements(Metric):
+    """
+    Measure the number of tap movements up, down, and total.
+    """
+
+    def evaluate(self,
+                 system: pf_dynamic.System,
+                 extractor: pyramses.extractor) -> float:
+        
+        DCTLs = filter(lambda r: isinstance(r, records.DCTL), system.records)
+
+        for DCTL in DCTLs:
+            data = extractor.getDctl(dctlname=DCTL.name)
+            print(data)
+            exit()
 
 class Experiment:
     """
@@ -154,7 +230,9 @@ class Experiment:
         )
         self.description = "No description was provided."
         self.systems: list[tuple[str, pf_dynamic.System]] = []
-        self.controllers: list[tuple[str, list[control.Controller]]] = []
+        self.controllers: list[tuple[str, list[control.Controller]]] = [
+            ("No control", control.Controller())
+        ]
         self.disturbances: list[
             tuple[str, list[sim_interaction.Disturbance]]
         ] = []
@@ -162,7 +240,8 @@ class Experiment:
         self.randomizations: list[Randomization] = [
             ("Not random", Randomization("Not random"))
         ]
-        self.metrics = []
+        self.visualizations: list[visual.Visualization] = []
+        self.metrics: list[Metric] = []
 
         self.settings = {
             "PLOT_STEP": 0.001,
@@ -335,10 +414,19 @@ class Experiment:
         Specify randomization of the network parameters (maybe a function).
         """
 
-    def add_metrics(self):
+    def add_metrics(self, *metrics: Metric) -> None:
         """
         Add metrics to compare effort of network elements (can be functions).
         """
+
+        for metric in metrics:
+            if not isinstance(metric, Metric):
+                raise RuntimeError(
+                    f"Metric {metric} "
+                    f"is not an instance of the Metric class."
+                )
+            
+            self.metrics.append(metric)
 
     def add_visualizations(self, *visualizations: visual.Visualization) -> None:
         """
@@ -746,7 +834,7 @@ class Experiment:
                 for dis in self.disturbances:
                     for ran in self.randomizations:
                         # Add controllers to the system (con[1] is iterable)
-                        if con[1][0] is not None:
+                        if con[0] != "No control":
                             print(con[1])
                             sys.add_controllers(con[1])
 
@@ -756,16 +844,6 @@ class Experiment:
 
                         # Add disturbances to the system (dis[1] is iterable)
                         sys.add_disturbances(dis[1])
-
-                        # Make the OLTCs 'instantaneous' in terms of simulation
-                        # settings
-
-                        # THIS IS VERY IMPORTANT AND h IS CURRENTLY UNDEFINED
-
-                        for OLTC in sys.OLTC_controllers:
-                            OLTC.delay_RAMSES_1 = OLTC.delay_RAMSES_2 = (
-                                3 / 4 * h
-                            )
 
                         # Generate working directory
                         cwd = self.case2str(
@@ -801,6 +879,9 @@ class Experiment:
 
                         # Collect performance metrics (using fundamental theorem
                         # of calculus)
+                        for metric in self.metrics:
+                            print(metric.evaluate(system=sys, extractor=ext))
+
 
     def build_visualizations(self,
                              system: pf_dynamic.System,
