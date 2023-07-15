@@ -577,79 +577,141 @@ class System(pf_static.StaticSystem):
             ind_to_update = self.get_t_now() - d.t_last_measurement > d.period
             d.update_measurements(self.get_t_now(), ind_to_update)
 
+    def generate_twin(
+        self, parameter_randomizations: Sequence[callable] = None
+    ) -> None:
+        """
+        Generate a twin of the system so it's used by controllers.
 
-# def get_twin(
-#     self, parameter_randomizations=None, measurement_corruptions=None
-# ):
-#     """
-#     Create a twin of the system so it's used by controllers.
+        The twin is generated at a certain point in time, and the parameters
+        might be corrupted.
 
-#     The twin might be perfect or might be corrupted. In any case, it only
-#     contains information about the TN.
-#     """
+        Ideally, the twin should be generated before the disaggregation.
+        """
 
-#     # Collect voltage measurements and write it to real system too
-#     for bus in self.buses:
-#         bus.V = self.ram.getBusVolt([bus.name])[0]
+        # The twin will be a deep copy of the system. However, we must be
+        # careful with the RAMSES simulator instance, which is not copyable. As
+        # a workaround, we temporarily remove it, create the copy, and then
+        # restore it.
+        ram = self.ram
+        self.ram = None
+        self.twin = copy.deepcopy(self)
+        self.ram = ram
 
-#     # Collect r measurements and write it to real system too
-#     for t in self.transformers:
-#         if t.has_OLTC and t.OLTC.OLTC_controller is not None:
-#             t.n = self.ram.getObs(
-#                 ["DCTL"], [t.OLTC.OLTC_controller.name], ["ratio"]
-#             )[0]
+        # We then apply parameter randomizations, which must be such that they
+        # modify the system that is passed.
+        if parameter_randomizations is not None:
+            for parameter_randomization in parameter_randomizations:
+                parameter_randomization(self.twin)
 
-#     # Create deep copy (temporary implementation)
-#     ram = self.ram
-#     self.ram = None
-#     mycopy = copy.deepcopy(self)
-#     self.ram = ram
+    def update_twin(
+        self, measurement_corruption=lambda element, measurement: measurement
+    ) -> None:
+        """
+        Update the twin by incorporating measurements from the simulation.
 
-#     # Remove DERs from the model
-#     for inj in mycopy.injectors:
-#         if "LOAD" in inj.prefix:
-#             inj.P0 = mycopy.get_bus_load(inj.bus, attr="P")
-#             inj.allocated_P0 = inj.P0
-#             inj.Q0 = mycopy.get_bus_load(inj.bus, attr="Q")
-#             inj.allocated_Q0 = inj.Q0
+        Each measurement corruption can be called as
 
-#     mycopy.injectors = [
-#         inj for inj in mycopy.injectors if not "DER_A" in inj.prefix
-#     ]
-#     # This is where randomizations would take place. Notice that the deep
-#     # copy (mycopy) might have corrupted injectors.
+            measurement_corruption(element: records.Record,
+                                   measurement: float)
 
-#     # Update insensitive power (load) being provided by transformers
-#     for t in mycopy.transformers:
-#         # Measure sensitive power
-#         sensitive_P, sensitive_Q = mycopy.get_sensitive_load(
-#             t.get_LV_bus()
-#         )
-#         # Measure total power
-#         power = self.ram.getBranchPow([t.name])[0]
-#         # Negative signs are needed because getBranchPow returns powers
-#         # entering the transformer (the branch), instead of exiting it
-#         # Signs are inverted because the TO and FROM buses are inverted
-#         # when exporting the transformer to RAMSES (see class Branch)
-#         if t.get_LV_bus() == t.from_bus:
-#             total_P = -power[2] * mycopy.base_MVA
-#             total_Q = -power[3] * mycopy.base_MVA
-#         else:
-#             total_P = -power[0] * mycopy.base_MVA
-#             total_Q = -power[1] * mycopy.base_MVA
-#         # Compute insensitive load
-#         insensitive_P_load = (total_P - sensitive_P) / mycopy.base_MVA
-#         insensitive_Q_load = (total_Q - sensitive_Q) / mycopy.base_MVA
-#         # if t.touches('CENTRAL'):
-#         # print('Transformer is', t.name)
-#         # print('Measured P:', total_P)
-#         # print('Sensitive P:', sensitive_P)
-#         # print('Insensitive P:', insensitive_P_load)
-#         # print('Measured Q:', total_Q)
-#         # print('Sensitive Q:', sensitive_Q)
-#         # print('Insensitive Q:', insensitive_Q_load)
-#         # Save load to attribute
-#         t.get_LV_bus().PL_pu = insensitive_P_load
-#         t.get_LV_bus().QL_pu = insensitive_Q_load
+        and returns a float (or a list of floats, as in the case of branches).
+        Inside it, it implements a sort of multiple dispatch, where the type of
+        the element determines the corruption.
 
-#     return mycopy
+        By default, the corruption is the identity function.
+        """
+
+        # Measuring the voltages is needed to close the feedback loop of the
+        # MPC. In fact, some of the matrices that this controller uses
+        # internally are dependent on measurements. Notice that we *must* use
+        # the RAMSES simulator of this instance to retrieve the measurements,
+        # but we *can* read the bus names from the twin. This is because these
+        # names are plain strings, not instances of a custom class.
+        for bus in self.twin.buses:
+            bus.V_pu = measurement_corruption(
+                element=bus,
+                # The following index might be unnecessary.
+                measurement=self.ram.getBusVolt(busNames=[bus.name])[0],
+            )
+
+        # The same is true for tap ratios. The method getObs() is different
+        # from getBusVolt() in the sense that it returns a list, and hence we
+        # must index it.
+        for transformer in self.twin.transformers:
+            if (
+                transformer.has_OLTC
+                and transformer.OLTC.OLTC_controller is not None
+            ):
+                transformer.n_pu = measurement_corruption(
+                    element=transformer.OLTC,
+                    measurement=self.ram.getObs(
+                        ["DCTL"],
+                        [transformer.OLTC.OLTC_controller.name],
+                        ["ratio"],
+                    )[0],
+                )
+
+        # The MPC also requires measuring the NLI, but this is retrieved
+        # directly from the detectors.
+
+        # Therefore, the last set of measurements required by the MPC are the
+        # DER powers. Because we cannot measure the DER powers individually, we
+        # use an approximation: after measuring the total power served by the
+        # transformer, we substract the power that the model (twin) expects
+        # from the voltage-sensitive load. This difference is then stored in
+        # the PL_pu and QL_pu attributes of the secondary bus, and it is
+        # considered to be the DER contribution. We expect the MPC to
+        # compensate for this approximation.
+
+        # We apply the previous logic to each transformer.
+        for transformer in self.twin.transformers:
+            # We start by measuring the voltage-sensitive load. Note that the
+            # method get_sensitive_load_MW_Mvar calls the methods get_P() and
+            # get_Q() of each Load injector connected to the secondary bus. In
+            # turn, these methods read the attribute V_pu, which was updated a
+            # few lines ago.
+            (
+                sensitive_P_load_MW,
+                sensitive_Q_load_Mvar,
+            ) = self.twin.get_sensitive_load_MW_Mvar(transformer.get_LV_bus())
+
+            # Then, we measure the total power entering the transformer.
+            power_into_transformer_pu = measurement_corruption(
+                element=transformer,
+                measurement=self.ram.getBranchPow([transformer.name])[0],
+            )
+
+            # This measurement can be translated into the total MW or Mvar
+            # *supplied* by the transformer.
+            if transformer.get_LV_bus() is transformer.from_bus:
+                # The "from" and "to" buses in this class are, in RAMSES, the
+                # "to" and "from" buses, respectively. Hence the indices below.
+                # The minus sign is because served power = - power entering the
+                # transformer.
+                P_from_served_pu = -power_into_transformer_pu[2]
+                Q_from_served_pu = -power_into_transformer_pu[3]
+                # We then convert to MW and Mvar.
+                total_P_load_MW = P_from_served_pu * self.twin.base_MVA
+                total_Q_load_Mvar = Q_from_served_pu * self.twin.base_MVA
+            else:
+                # This handles the case when the secondary, LV bus is the
+                # "to" bus.
+                P_to_served_pu = -power_into_transformer_pu[0]
+                Q_to_served_pu = -power_into_transformer_pu[1]
+                # Again, we convert to MW and Mvar.
+                total_P_load_MW = P_to_served_pu * self.twin.base_MVA
+                total_Q_load_Mvar = Q_to_served_pu * self.twin.base_MVA
+
+            # Once we know the total power served by the transformer, we can
+            # compute the DER contribution, which is the insensitive load.
+            insensitive_P_load_pu = (
+                total_P_load_MW - sensitive_P_load_MW
+            ) / self.twin.base_MVA
+            insensitive_Q_load_pu = (
+                total_Q_load_Mvar - sensitive_Q_load_Mvar
+            ) / self.twin.base_MVA
+            # Finally, we save the DER contribution to the transformer's
+            # secondary bus.
+            transformer.get_LV_bus().PL_pu = insensitive_P_load_pu
+            transformer.get_LV_bus().QL_pu = insensitive_Q_load_pu

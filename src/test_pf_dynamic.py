@@ -18,6 +18,7 @@ import pf_static
 import records
 import test_sim_interaction
 import control
+import oltc
 
 # Modules from the standard library
 import os
@@ -98,42 +99,38 @@ def test_add_OLTC_controller():
 
     sys = System()
 
-    class TestOLTCController(control.OLTC_controller):
+    class TestOLTCController(oltc.OLTC_controller):
         def __init__(self) -> None:
             pass
 
         def __str__(self) -> str:
             return "Test OLTC controller"
 
-    oltc = TestOLTCController()
+    OLTC = TestOLTCController()
 
     # Test that an OLTC controller can be added
-    sys.add_OLTC_controller(OLTC_controller=oltc)
+    sys.add_OLTC_controller(OLTC_controller=OLTC)
     assert sys.OLTC_controllers == [
-        oltc
+        OLTC
     ], "OLTC controller list is incomplete."
 
     # Test that an OLTC controller cannot be added twice
     try:
-        sys.add_OLTC_controller(OLTC_controller=oltc)
+        sys.add_OLTC_controller(OLTC_controller=OLTC)
         assert False, "OLTC controller should not be added twice."
     except RuntimeError:
         pass
     except:
         assert False, "OLTC controller should not be added twice."
 
-    # Test that only subclasses of control.OLTC_controller can be added
+    # Test that only subclasses of oltc.OLTC_controller can be added
     try:
         sys.add_OLTC_controller(OLTC_controller=control.Controller())
-        assert (
-            False
-        ), "Controllers must be a subclass of control.OLTC_controller."
+        assert False, "Controllers must be a subclass of oltc.OLTC_controller."
     except RuntimeError:
         pass
     except:
-        assert (
-            False
-        ), "Controllers must be a subclass of control.OLTC_controller."
+        assert False, "Controllers must be a subclass of oltc.OLTC_controller."
 
 
 def get_dynamic_nordic(solve: bool = True) -> System:
@@ -510,19 +507,122 @@ def test_send_disturbances():
     assert looks_nice == "y", "Wrong disturbances were sent."
 
 
+def test_twins():
+    """
+    Test the generation and update of twins.
+    """
+
+    nordic = get_dynamic_nordic(solve=True)
+
+    def randomize_normally(parameter: float) -> float:
+        return np.random.normal(loc=parameter, scale=0.1 * parameter)
+
+    # Define dummy parameter randomization
+    def randomize_loads(sys: System) -> None:
+        for inj in sys.injectors:
+            if isinstance(inj, records.Load):
+                # Modify the active power
+                inj.allocated_P0_MW -= 30
+                inj.P0_MW = inj.allocated_P0_MW
+                # Modify the reactive power
+                inj.allocated_Q0_Mvar -= 30
+                inj.Q0_Mvar = inj.allocated_Q0_Mvar
+
+    def randomize_branches(sys: System) -> None:
+        for branch in sys.branches:
+            branch.R_pu = randomize_normally(branch.R_pu)
+            branch.X_pu = randomize_normally(branch.X_pu)
+            branch.from_Y_pu = randomize_normally(
+                branch.from_Y_pu.real
+            ) + 1j * randomize_normally(branch.from_Y_pu.imag)
+            branch.to_Y_pu = randomize_normally(
+                branch.to_Y_pu.real
+            ) + 1j * randomize_normally(branch.to_Y_pu.imag)
+
+    # Test the generation of a (randomized) twin
+    nordic.generate_twin(
+        parameter_randomizations=[randomize_loads, randomize_branches],
+    )
+
+    nordic.twin.run_pf()
+    print(nordic.generate_table())
+    print(nordic.twin.generate_table())
+
+    looks_nice = input("Does the twin look correct? (y/n) ")
+    assert looks_nice == "y", "The twin was not generated correctly."
+
+    # Overwrite original twin
+    nordic.generate_twin()
+    nordic.twin.run_pf()
+
+    # In the model, make the loads voltage sensitive
+    for inj in nordic.twin.injectors:
+        if isinstance(inj, records.Load):
+            inj.make_voltage_sensitive(alpha=1, beta=2)
+
+    # Test the update of a twin
+    class RAMSESImitator:
+        def getBusVolt(self, busNames: list[str]) -> list[float]:
+            return [0.95 for _ in busNames]
+
+        def getObs(
+            self,
+            comp_type: list[str],
+            comp_name: list[str],
+            obs_name: list[str],
+        ) -> list[float]:
+            return [0.98 for _ in comp_type]
+
+        def getBranchPow(self, branchName: list[str]) -> list[float]:
+            return [[-np.e, -np.e, -np.e, -np.e] for _ in branchName]
+
+    nordic.ram = RAMSESImitator()
+
+    # Store values to make assertions about the insensitive loads (bus 3)
+    P3 = (0.95 / nordic.twin.get_bus(name="3").V_pu) ** 1 * 260
+    Q3 = (0.95 / nordic.twin.get_bus(name="3").V_pu) ** 2 * 83.8
+
+    nordic.update_twin()
+
+    # Make assertions about the voltages
+    for bus in nordic.twin.buses:
+        assert np.isclose(bus.V_pu, 0.95), "Voltage should be 1.0 p.u."
+
+    # Make assertions about the tap ratios
+    for transformer in nordic.twin.transformers:
+        if (
+            transformer.has_OLTC
+            and transformer.OLTC.OLTC_controller is not None
+        ):
+            assert np.isclose(
+                transformer.n_pu, 0.98
+            ), "Tap ratio should be 0.99"
+
+    assert np.isclose(
+        nordic.twin.get_bus(name="3").PL_pu,
+        np.e - P3 / 100,
+    )
+
+    assert np.isclose(
+        nordic.twin.get_bus(name="3").QL_pu,
+        np.e - Q3 / 100,
+    )
+
+
 if __name__ == "__main__":
-    test_System_initialization()
-    test_add_record()
-    test_set_frequency()
-    test_add_OLTC_controller()
-    test_import_dynamic_data()
-    test_export_to_RAMSES()
-    test_add_disturbances()
-    test_add_detector()
-    test_add_controllers()
-    test_get_t_now()
-    test_get_disturbances_until()
-    test_send_disturbance()
-    test_send_disturbances()
+    # test_System_initialization()
+    # test_add_record()
+    # test_set_frequency()
+    # test_add_OLTC_controller()
+    # test_import_dynamic_data()
+    # test_export_to_RAMSES()
+    # test_add_disturbances()
+    # test_add_detector()
+    # test_add_controllers()
+    # test_get_t_now()
+    # test_get_disturbances_until()
+    # test_send_disturbance()
+    # test_send_disturbances()
+    test_twins()
 
     print("Module 'pf_dynamic' passed all tests!")
