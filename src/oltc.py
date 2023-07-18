@@ -188,6 +188,8 @@ class OLTC_controller(control.Controller, records.DCTL):
 
         The only thing that could stop this movement it is that the cumulative
         dr is not enough to trigger an integer change in the tap ratio.
+
+        Returns None if the OLTC could not move in neither direction.
         """
 
         # We start by measuring the current time, using the system bound to the
