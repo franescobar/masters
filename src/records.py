@@ -906,12 +906,33 @@ class Branch(Record):
         V_from = self.from_bus.get_phasor_V()
         V_to = self.to_bus.get_phasor_V()
 
-        I_from = (V_from - V_to) / (
-            self.R_pu + 1j * self.X_pu
-        ) + V_from * self.from_Y_pu
-        I_to = (V_to - V_from) / (
-            self.R_pu + 1j * self.X_pu
-        ) + V_to * self.to_Y_pu
+        if self.branch_type == "Line":
+            # If the branch is a line, the parameters of the pi model can be
+            # read directly.
+            Y_pu_series = 1 / (self.R_pu + 1j * self.X_pu)
+            from_Y_pu = self.from_Y_pu
+            to_Y_pu = self.to_Y_pu
+
+        elif self.branch_type == "Transformer":
+            # On the other hand, if the branch is a transformer, the pi model
+            # must be built first, taking into account the turns ratio.
+            Y_pu_series = 1 / (self.R_pu + 1j * self.X_pu)
+            new_Y_pu_series = Y_pu_series / self.n_pu
+            new_from_Y_pu = (
+                self.from_Y_pu + Y_pu_series
+            ) / self.n_pu**2 - new_Y_pu_series
+            new_to_Y_pu = self.to_Y_pu + Y_pu_series - new_Y_pu_series
+            # We now store these values into the original variables (the same)
+            # names used in the "if" branch.
+            Y_pu_series = new_Y_pu_series
+            from_Y_pu = new_from_Y_pu
+            to_Y_pu = new_to_Y_pu
+
+        # The remaining calculations are the same for both branches and simply
+        # apply circuit theory.
+
+        I_from = (V_from - V_to) * Y_pu_series + V_from * from_Y_pu
+        I_to = (V_to - V_from) * Y_pu_series + V_to * to_Y_pu
 
         S_from = V_from * np.conj(I_from)
         S_to = V_to * np.conj(I_to)
