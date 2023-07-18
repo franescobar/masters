@@ -1,11 +1,10 @@
 """
 Test functions for the 'pf_dynamic' module.
 
-This file tests all methods except for three:
+This file tests all methods except for these:
 
-    1. System.update_detectors,
-    2. System.follow_controllers, and
-    3. System.get_twin.
+    1. System.update_detectors and
+    2. System.follow_controllers.
 
 Since they rely on the RAMSES simulator, they are tested in test_experiment.py
 """
@@ -610,19 +609,19 @@ def test_twins():
 
 
 if __name__ == "__main__":
-    # test_System_initialization()
-    # test_add_record()
-    # test_set_frequency()
-    # test_add_OLTC_controller()
-    # test_import_dynamic_data()
-    # test_export_to_RAMSES()
-    # test_add_disturbances()
-    # test_add_detector()
-    # test_add_controllers()
-    # test_get_t_now()
-    # test_get_disturbances_until()
-    # test_send_disturbance()
-    # test_send_disturbances()
+    test_System_initialization()
+    test_add_record()
+    test_set_frequency()
+    test_add_OLTC_controller()
+    test_import_dynamic_data()
+    test_export_to_RAMSES()
+    test_add_disturbances()
+    test_add_detector()
+    test_add_controllers()
+    test_get_t_now()
+    test_get_disturbances_until()
+    test_send_disturbance()
+    test_send_disturbances()
     test_twins()
 
     print("Module 'pf_dynamic' passed all tests!")

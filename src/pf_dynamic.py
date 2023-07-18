@@ -45,6 +45,9 @@ class System(pf_static.StaticSystem):
         self.controllers: list[control.Controller] = []
         self.OLTC_controllers: list[oltc.OLTC_controller] = []
 
+        # Initialize twin
+        self.twin = None
+
     def add_record(self, record: records.Record) -> None:
         """
         Add a record, i.e. an element with no effect on the power flow.
@@ -587,6 +590,12 @@ class System(pf_static.StaticSystem):
         might be corrupted.
 
         Ideally, the twin should be generated before the disaggregation.
+
+        Each parameter randomization can be called as
+
+            parameter_randomization(system: System)
+
+        and returns nothing, but instead modifies the system that is passed.
         """
 
         # The twin will be a deep copy of the system. However, we must be
@@ -604,13 +613,16 @@ class System(pf_static.StaticSystem):
             for parameter_randomization in parameter_randomizations:
                 parameter_randomization(self.twin)
 
+        # Having created the twin, update it with the latest measurements
+        # available from the simulator?
+
     def update_twin(
-        self, measurement_corruption=lambda element, measurement: measurement
+        self, measurement_corruption: callable = lambda element, measurement: measurement
     ) -> None:
         """
         Update the twin by incorporating measurements from the simulation.
 
-        Each measurement corruption can be called as
+        The measurement corruption can be called as
 
             measurement_corruption(element: records.Record,
                                    measurement: float)
@@ -620,7 +632,12 @@ class System(pf_static.StaticSystem):
         the element determines the corruption.
 
         By default, the corruption is the identity function.
+
+        IMPORTANT: THIS METHOD SHOULD ALSO UPDATE THE TOPOLOGY OF THE TWIN,
+        AS WELL AS THE CONECTIVITY.
         """
+
+        # Update topology and connectivity
 
         # Measuring the voltages is needed to close the feedback loop of the
         # MPC. In fact, some of the matrices that this controller uses
@@ -666,6 +683,14 @@ class System(pf_static.StaticSystem):
 
         # We apply the previous logic to each transformer.
         for transformer in self.twin.transformers:
+
+            # If the transformer is not a step-down transformer, we skip it.
+            if not any(
+                inj.bus is transformer.get_LV_bus() for inj in self.twin.injectors
+                if isinstance(inj, records.Load)
+            ):
+                continue
+
             # We start by measuring the voltage-sensitive load. Note that the
             # method get_sensitive_load_MW_Mvar calls the methods get_P() and
             # get_Q() of each Load injector connected to the secondary bus. In
