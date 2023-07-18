@@ -88,6 +88,7 @@ def cvxopt_solve_qp(
         subject to G @ x <= h ,
                    A @ x == b .
 
+    Returns a 1D-numpy array with the solution.
     """
 
     # Cast matrices to floats
