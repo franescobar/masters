@@ -694,6 +694,22 @@ class Load(Injector):
         self.beta = self.beta1 = beta
         self.V0 = self.bus.V_pu
 
+    def scale_P_by(self, factor: float) -> None:
+        """
+        Scale active load by a factor.
+        """
+
+        self.P0_MW *= factor
+        self.allocated_P0_MW *= factor
+
+    def scale_Q_by(self, factor: float) -> None:
+        """
+        Scale reactive load by a factor.
+        """
+
+        self.Q0_Mvar *= factor
+        self.allocated_Q0_Mvar *= factor
+
     def get_P(self) -> float:
         """
         Exponential load model.
@@ -1121,7 +1137,7 @@ class DERA(Injector):
         fdbd1: float = -0.0006,  # Zero or negative number
         fdbd2: float = 0.0006,  # Zero or positive number
         Ddn: float = 20,
-        Dup: float = 0,
+        Dup: float = 20,
         femin: float = -99,
         femax: float = 99,
         kig: float = 10,
@@ -1130,16 +1146,16 @@ class DERA(Injector):
         Pmax: float = 1,
         dPmin: float = -99,
         dPmax: float = 99,
-        Freq_flag: int = 1,
-        Pflag: int = 0,  # 0 for Q priority, 1 for P priority
-        Pqflag: int = 1,
-        typeflag: int = 1,
+        Freq_flag: int = 1, # 1 for P-f control, 0 for P reference
+        Pflag: int = 1,  # 1 for power factor reference, 0 to reactive power reference
+        Pqflag: int = 1, # 1 for P priority, 0 for Q priority
+        typeflag: int = 1, # 1 if generator, 0 if storage
         Tpord: float = 5,
         Trv: float = 0.02,
-        vref0: float = 1,
-        dbd1: float = -0.01,  # Zero or negative number
-        dbd2: float = 0.01,  # Zero or positive number
-        kqv: float = 8,
+        vref0: float = 0, # the model sets its own reference voltage based on initial conditions
+        dbd1: float = -0.01,  # Zero or negative number (IEEE 1547-2018 recommends -99, as in most applications DERs do not control voltage)
+        dbd2: float = 0.01,  # Zero or positive number (IEEE 1547-2018 recommends 99, as in most applications DERs do not control voltage)
+        kqv: float = 8, # Voltage control gain
         Iql1: float = -1,
         Iqh1: float = 1,
         Tiq: float = 0.02,
@@ -1156,12 +1172,12 @@ class DERA(Injector):
         tvh1: float = 0.16,
         vh0: float = 1.2,
         tvh0: float = 0.16,
-        Trf: float = 0.1,
+        Trf: float = 0.1, # No idea where this value came from
         Vpr: float = 0.3,
         Tg: float = 0.02,
         rrpwr: float = 2,
-        Vrfrac: float = 0.8,
-        VtripFlag: float = 1.0,
+        Vrfrac: float = 1.0, # No vintage DERs
+        VtripFlag: float = 1.0, # 1 if tripping logic is enabled, 0 if not
         Tv: float = 0.02,
     ) -> None:
         attributes = vars()
