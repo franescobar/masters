@@ -1298,6 +1298,7 @@ class StaticSystem:
         show_buses: bool = True,
         show_lines: bool = True,
         show_transformers: bool = True,
+        show_injectors: bool = True,
     ) -> str:
         """
         Display system data in tabular form.
@@ -1480,6 +1481,48 @@ class StaticSystem:
                 floatfmt=transformer_precision,
             )
 
+        if show_injectors:
+
+            injector_data = [
+                [
+                    self.injectors.index(injector),
+                    injector.name,
+                    injector.bus.name,
+                    injector.get_P() if not np.isclose(injector.get_P(), 0) else 0.0,
+                    injector.get_Q() if not np.isclose(injector.get_Q(), 0) else 0.0,
+                    injector.get_dP_dV() if not np.isclose(injector.get_dP_dV(), 0) else 0.0,
+                    injector.get_dQ_dV() if not np.isclose(injector.get_dQ_dV(), 0) else 0.0
+                ]
+                for injector in self.injectors
+            ]
+
+            # Define headers
+            injector_headers = [
+                "Index",
+                "Name",
+                "Bus",
+                "P (MW)",
+                "Q (Mvar)",
+                "dP/dV (MW/pu)",
+                "dQ/dV (Mvar/pu)",
+            ]
+
+            # Build injector table
+            injector_precision = (
+                0,
+                0,
+                0,
+                ".3f",
+                ".3f",
+                ".3f",
+                ".3f",
+            )
+            injector_table = tabulate.tabulate(
+                tabular_data=injector_data,
+                headers=injector_headers,
+                floatfmt=injector_precision,
+            )
+
         # Possibly add a filler name for the system
         if self.name == "":
             display_name = str(len(self.buses)) + "-bus system"
@@ -1500,6 +1543,9 @@ class StaticSystem:
 
         if show_transformers:
             output_str += f"\n\nTRANSFORMER DATA:\n\n\n{transformer_table}\n"
+
+        if show_injectors:
+            output_str += f"\n\nINJECTOR DATA:\n\n\n{injector_table}\n"
 
         return output_str
 
