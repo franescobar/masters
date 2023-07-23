@@ -41,13 +41,37 @@ class NLI_plots(Visualization):
 
         NLI_detectors = (d for d in system.detectors if isinstance(d, nli.NLI))
 
-
         plt.figure()
         for detector in NLI_detectors:
-            if detector.boundary_bus.name in self.receiving_buses:
-                x, y = list(zip(*detector.boundary_bus.NLI_bar))
-                plt.plot(x, y,
-                         label=f"Bus {detector.boundary_bus.name}")
+            if (
+                not detector.boundary_bus.NLI_bar \
+                or detector.boundary_bus.name not in self.receiving_buses
+            ):
+                continue
+
+            x, y = list(zip(*detector.boundary_bus.NLI_bar))
+            plt.plot(x, y,
+                    label=f"Bus {detector.boundary_bus.name}")
+        plt.show()
+
+class CentralVoltages(Visualization):
+
+    def generate(self, 
+                 system: pf_dynamic.System,
+                 extractor: pyramses.extractor) -> None:
+        
+        central_buses = (bus for bus in system.buses if bus.location == "CENTRAL")
+
+        plt.figure()
+        for bus in central_buses:
+            data = extractor.getBus(bus.name)
+            time = data.mag.time
+            voltage = data.mag.value
+            plt.plot(time, voltage, label=bus.name)
+        plt.legend()
+        plt.xlabel("Time (s)") 
+        plt.ylabel("Voltage (pu)")
+        plt.title("Central voltages")
         plt.show()
 
 
