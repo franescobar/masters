@@ -9,6 +9,7 @@ import control  # for specifying controllers
 import nli
 import visual  # for specifying visualizations
 import records
+import metrics
 
 # Modules from the standard libray
 import time  # for appending a timestamp to the experiment's name
@@ -16,6 +17,7 @@ from typing import Union  # for annotating observed objects
 import os  # for creating directories and checking if files exist
 import copy  # for deep copying systems and controllers before simulations
 import bisect  # for inserting observables into sorted lists
+import tabulate # for tabulating metrics
 
 # Other modules
 import numpy as np
@@ -51,81 +53,6 @@ class Randomization:
     def __init__(self, description: str) -> None:
         self.description = description
 
-class Metric:
-    """
-    A class for specifying performance metrics.
-    """
-
-    pass
-
-class VoltageIntegral(Metric):
-    """
-    Compute the integral of voltage deviations from their initial value.
-    """
-
-    def evaluate(self, 
-                 system: pf_dynamic.System,
-                 extractor: pyramses.extractor) -> float:
-        
-        # The computation of this metric only includes load buses, as it is
-        # their voltages what one tries to keep within limits.
-        load_buses = [bus for bus in system.buses 
-                      if any(inj.bus is bus for inj in system.injectors
-                             if isinstance(inj, records.Load))]
-        
-        # It is useful that the indicator averages the deviation across several
-        # buses, hence we consider the number of such buses.
-        N = len(load_buses)
-
-        delta_V_offset = 0
-        for bus in load_buses:
-            data = extractor.getBus(bus.name)
-            time = data.mag.time
-            voltage = data.mag.value
-            delta_t = time[-1] - time[0]
-            integrand = np.abs(voltage - voltage[0])
-            delta_V_offset += np.trapz(x=time, y=integrand) / delta_t / N
-        
-        return delta_V_offset
-        
-class ReactiveMargin(Metric):
-    """
-    A measure of the reactive power that remains from synchronous machines.
-    """
-
-    def evaluate(self,
-                 system: pf_dynamic.System,
-                 extractor: pyramses.extractor) -> float:
-        
-        N = len(system.generators)
-
-        margin = 0
-        for generator in system.generators:
-            data = extractor.getExc(syncname=generator.name)
-            data = getattr(data, "if")
-            time = data.time
-            field_current = data.value
-            delta_t = time[-1] - time[0]
-            integrand = float(generator.exciter.iflim) - field_current
-            margin += np.trapz(x=time, y=integrand) / delta_t / N
-
-        return margin
-
-class TapMovements(Metric):
-    """
-    Measure the number of tap movements up, down, and total.
-    """
-
-    def evaluate(self,
-                 system: pf_dynamic.System,
-                 extractor: pyramses.extractor) -> float:
-        
-        DCTLs = filter(lambda r: isinstance(r, records.DCTL), system.records)
-
-        for DCTL in DCTLs:
-            data = extractor.getDctl(dctlname=DCTL.name)
-            print(data)
-            exit()
 
 class Experiment:
     """
@@ -235,13 +162,15 @@ class Experiment:
         ]
         self.disturbances: list[
             tuple[str, list[sim_interaction.Disturbance]]
-        ] = []
+        ] = [
+            ("No dist.", None) # All experiments include case without disturbance
+        ]
         self.observables: list[sim_interaction.Observable] = []
         self.randomizations: list[Randomization] = [
             ("Not random", Randomization("Not random"))
         ]
         self.visualizations: list[visual.Visualization] = []
-        self.metrics: list[Metric] = []
+        self.metrics: list[metrics.Metric] = []
 
         self.settings = {
             "PLOT_STEP": 0.001,
@@ -415,13 +344,13 @@ class Experiment:
         Specify randomization of the network parameters (maybe a function).
         """
 
-    def add_metrics(self, *metrics: Metric) -> None:
+    def add_metrics(self, *defined_metrics: metrics.Metric) -> None:
         """
         Add metrics to compare effort of network elements (can be functions).
         """
 
-        for metric in metrics:
-            if not isinstance(metric, Metric):
+        for metric in defined_metrics:
+            if not isinstance(metric, metrics.Metric):
                 raise RuntimeError(
                     f"Metric {metric} "
                     f"is not an instance of the Metric class."
@@ -830,10 +759,16 @@ class Experiment:
         # Add observables from visualizations
 
         # Iterate over all cases
-        for sys_description, sys in self.systems:
+        for sys_description, system in self.systems:
             for con in self.controllers:
                 for dis in self.disturbances:
                     for ran in self.randomizations:
+                        # Create a deep copy of the system
+                        ram = system.ram
+                        system.ram = None
+                        sys = copy.deepcopy(system)
+                        sys.ram = ram
+
                         # Add controllers to the system (con[1] is iterable)
                         if con[0] != "No control":
                             print(con[1])
@@ -844,7 +779,8 @@ class Experiment:
                             self.add_observables(*d.get_required_observables())
 
                         # Add disturbances to the system (dis[1] is iterable)
-                        sys.add_disturbances(dis[1])
+                        if dis[0] != "No dist.": 
+                            sys.add_disturbances(dis[1])
 
                         # Generate working directory
                         cwd = self.case2str(
@@ -878,11 +814,34 @@ class Experiment:
                         # Remove the trj
                         os.remove(map2out(filename=self.traj_filename))
 
-                        # Collect performance metrics (using fundamental theorem
-                        # of calculus)
-                        for metric in self.metrics:
-                            print(metric.evaluate(system=sys, extractor=ext))
+                        def map2metric(filename: str) -> str:
+                            """
+                            Append path to metrics folder.
+                            """
 
+                            return os.path.join(cwd, self.met_dir, filename)
+
+                        # Write performance metrics to file
+                        with open(map2metric("metrics.txt"), "w") as f:
+                            data = []
+                            
+                            for metric in self.metrics:
+                                value = metric.evaluate(
+                                    system=sys, extractor=ext
+                                )
+                                row = [metric.name, value, metric.units]
+                                data.append(row)
+
+                            headers = ["Metric description", "Value", "Units"]
+                            precision = (0, ".4f", 0)
+
+                            table = tabulate.tabulate(
+                                tabular_data=data,
+                                headers=headers,
+                                floatfmt=precision,
+                            )
+
+                            f.write(table + "\n")
 
     def build_visualizations(self,
                              system: pf_dynamic.System,
