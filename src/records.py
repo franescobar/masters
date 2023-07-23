@@ -1124,7 +1124,7 @@ class DERA(Injector):
     DER_A model in RAMSES.
     """
 
-    prefix: str = "INJEC DER_A"
+    prefix: str = "INJEC DERA"
 
     def __init__(
         self,
@@ -1146,16 +1146,16 @@ class DERA(Injector):
         Pmax: float = 1,
         dPmin: float = -99,
         dPmax: float = 99,
-        Freq_flag: int = 1, # 1 for P-f control, 0 for P reference
-        Pflag: int = 1,  # 1 for power factor reference, 0 to reactive power reference
+        Freq_flag: int = 0, # 1 for P-f control, 0 for P reference
+        Pflag: int = 0,  # 1 for power factor reference, 0 to reactive power reference
         Pqflag: int = 1, # 1 for P priority, 0 for Q priority
         typeflag: int = 1, # 1 if generator, 0 if storage
         Tpord: float = 5,
         Trv: float = 0.02,
         vref0: float = 0, # the model sets its own reference voltage based on initial conditions
-        dbd1: float = -0.01,  # Zero or negative number (IEEE 1547-2018 recommends -99, as in most applications DERs do not control voltage)
-        dbd2: float = 0.01,  # Zero or positive number (IEEE 1547-2018 recommends 99, as in most applications DERs do not control voltage)
-        kqv: float = 8, # Voltage control gain
+        dbd1: float = -99,  # Zero or negative number (IEEE 1547-2018 recommends -99, as in most applications DERs do not control voltage, e.g. -0.01)
+        dbd2: float = 99,  # Zero or positive number (IEEE 1547-2018 recommends 99, as in most applications DERs do not control voltage, e.g. 0.01)
+        kqv: float = 0, # Voltage control gain (e.g. 8)
         Iql1: float = -1,
         Iqh1: float = 1,
         Tiq: float = 0.02,
