@@ -269,10 +269,20 @@ class FieldCurrent(control.Detector):
         """
 
         if indices_to_update:
-            # Measure state of the field current
-            if_state = self.sys.ram.getObs(
-                ["EXC"], [self.machine_name], ["zdead"]
-            )[0]
+            # Measure state of the field current. The following
+            # will look at two things:
+            # 1. if a machine is currently overexcited (zdead) and
+            # 2. if a machine was over excited at some point in the
+            #    past, to the point that the OEL acted (zswitch)
+            # Then it will take the more pessimistic state (max)
+            if_state = max(
+                self.sys.ram.getObs(
+                    ["EXC"], [self.machine_name], ["zdead"]
+                )[0],
+                self.sys.ram.getObs(
+                    ["EXC"], [self.machine_name], ["zswitch"]
+                )[0]
+            )
             # Store those values
             self.history.append((tk, if_state))
             # Reset counter
