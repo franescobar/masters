@@ -51,9 +51,9 @@ class OLTC_controller(control.Controller, records.DCTL):
         # sure that the DCTL in RAMSES will never act by itself. The trick will
         # be, instead, to change this half deadband precisely when we want to
         # trigger a movement of the OLTC. Setting the value to 2 allows
-        # voltages from 0 pu to 2 pu, which covers all plausible voltages in
+        # voltages from 0 pu to 1 pu, which covers all plausible voltages in
         # the system.
-        self.initial_half_db_pu_RAMSES: float = 2.0
+        self.initial_half_db_pu_RAMSES: float = 1.0
         # For internal use in this class, especially when this controller is
         # overriden by the MPC, we keep track of cumulative changes in the tap
         # ratio. Furthermore, we keep a copy of the half deadband, which will
