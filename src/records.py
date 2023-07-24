@@ -20,7 +20,7 @@ class Parameter:
     header) and the significant digits (which leads to cleaner RAMSES files).
     """
 
-    def __init__(self, name: str, value: float, digits: int = None) -> None:
+    def __init__(self, name: str, value: float, digits: int = 6) -> None:
         """
         Define a parameter called 'name' with a number of significant digits.
         """
@@ -39,6 +39,8 @@ class Parameter:
         if isinstance(self.value, str):
             return self.value
 
+        # The following is deprecated. For simplicity, digits now takes the 
+        # default value of 10.
         # If no significant digits are specified, return the parameter as is
         elif self.digits is None:
             return str(float(self.value))
@@ -231,7 +233,7 @@ class Bus(Record):
         return self.V_pu * np.exp(1j * self.theta_radians)
 
     def get_pars(self) -> list[Parameter]:
-        return self.pars
+        return [Parameter("nominal_kV", self.base_kV)]
 
     def change_base(self,
                     base_MVA_old: float,
@@ -800,8 +802,8 @@ class Load(Injector):
             Parameter("bus", self.bus.name),
             Parameter("FP", 0),
             Parameter("FQ", 0),
-            Parameter("P", self.get_P()),
-            Parameter("Q", self.get_Q()),
+            Parameter("P", self.get_P(), digits=10),
+            Parameter("Q", self.get_Q(), digits=10),
             Parameter("DP", self.DP),
             Parameter("A1", self.A1),
             Parameter("alpha1", self.alpha1),

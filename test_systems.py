@@ -347,7 +347,7 @@ def get_UKGDS_pool(
         V_pu=1.0,
         theta_radians=0.0,
         factor_deviation=0.0,
-        P_max_MW=2.0,
+        P_max_MW=2.5,
         P_average_MW=1.0,
         V_min_pu=V_min_pu,
         V_max_pu=V_max_pu,
@@ -357,7 +357,7 @@ def get_UKGDS_pool(
         V_pu=1.0,
         theta_radians=0.0,
         factor_deviation=0.0,
-        P_max_MW=2.5,
+        P_max_MW=3.0,
         P_average_MW=1.0,
         V_min_pu=V_min_pu,
         V_max_pu=V_max_pu,
@@ -367,7 +367,7 @@ def get_UKGDS_pool(
         V_pu=1.0,
         theta_radians=0.0,
         factor_deviation=0.0,
-        P_max_MW=3.0,
+        P_max_MW=4.0,
         P_average_MW=1.0,
         V_min_pu=V_min_pu,
         V_max_pu=V_max_pu,
@@ -398,7 +398,7 @@ def get_disaggregated_nordic(
     nordic = get_dynamic_Nordic()
 
     # We now create a pool of UKGDS that are useful for the disaggregation.
-    pool = get_UKGDS_pool(V_min_pu=0.96)
+    pool = get_UKGDS_pool(V_min_pu=0.965)
 
     # Identify central buses
     central_buses = [
