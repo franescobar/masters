@@ -53,11 +53,11 @@ def test_var2mho():
 
 def test_change_base():
     assert np.isclose(
-        change_base(quantity=2, Sb_old=200e6, Sb_new=100e6, type="S"), 4
+        change_base(quantity=2, base_MVA_old=200, base_MVA_new=100, type="S"), 4
     ), "Power conversion is not working"
 
     assert np.isclose(
-        change_base(quantity=1, Sb_old=200e6, Sb_new=100e6, type="Z"), 0.5
+        change_base(quantity=1, base_MVA_old=200, base_MVA_new=100, type="Z"), 0.5
     ), "Impedance conversion is not working"
 
 

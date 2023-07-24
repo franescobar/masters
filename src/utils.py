@@ -56,18 +56,28 @@ def var2mho(Mvar_3P: float, kV_LL: float) -> float:
 
 
 def change_base(
-    quantity: complex, Sb_old: float, Sb_new: float, type: str = "Z"
+    quantity: complex, base_MVA_old: float, base_MVA_new: float,
+    base_kV_old: float = 1.0, base_kV_new: float = 1.0,
+    type: str = "Z",
 ) -> complex:
     """
     Convert quantity (impedance or power) to another base.
     """
 
     if type == "Z":
-        return quantity * Sb_new / Sb_old
+        Zb_old_ohm = base_kV_old**2 / base_MVA_old
+        Zb_new_ohm = base_kV_new**2 / base_MVA_new
+        return quantity * Zb_old_ohm / Zb_new_ohm
+        # return quantity * base_MVA_new / base_MVA_old
     elif type == "Y":
-        return quantity * Sb_old / Sb_new
+        Zb_old_ohm = base_kV_old**2 / base_MVA_old
+        Zb_new_ohm = base_kV_new**2 / base_MVA_new
+        Yb_old_mho = 1 / Zb_old_ohm
+        Yb_new_mho = 1 / Zb_new_ohm
+        return quantity * Yb_old_mho / Yb_new_mho
+        # return quantity * base_MVA_old / base_MVA_new
     elif type == "S":
-        return quantity * Sb_old / Sb_new
+        return quantity * base_MVA_old / base_MVA_new
     else:
         raise ValueError("type must be either 'Z' or 'S'")
 
