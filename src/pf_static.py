@@ -159,6 +159,75 @@ class StaticSystem:
         self.bus_to_injectors[bus] = []
         self.bus_to_generators[bus] = []
 
+    def remove_bus(self, bus: records.Bus) -> None:
+        """
+        Remove bus from the system.
+        """
+
+        # Remove bus from the list of buses (irrespective of bus type)
+        self.buses.remove(bus)
+
+        # Remove bus depending on its type
+        if isinstance(bus, records.Slack):
+            self.slack = None
+        elif isinstance(bus, records.PQ):
+            self.PQ_buses.remove(bus)
+            self.non_slack_buses.remove(bus)
+        elif isinstance(bus, records.PV):
+            self.PV_buses.remove(bus)
+            self.non_slack_buses.remove(bus)
+
+        # Remove bus from dictionary for quick access to named elements
+        del self.bus_dict[bus.name]
+
+        # Remove injectors and generators connected to bus
+        for inj in self.bus_to_injectors[bus]:
+            self.remove_injector(inj)
+
+        for gen in self.bus_to_generators[bus]:
+            self.remove_generator(gen)
+
+        # Remove entries in dictionaries for quick access to injectors and
+        # generators
+        del self.bus_to_injectors[bus]
+        del self.bus_to_generators[bus]
+
+    def replace_bus(self, old_bus: records.Bus, new_bus: records.Bus) -> None:
+        """
+        Replace bus in the system.
+        """
+
+        # Keep the only piece of information that is required from the old bus
+        injectors = self.bus_to_injectors[old_bus]
+        generators = self.bus_to_generators[old_bus]
+
+        # Remove the old bus and add the new one
+        self.remove_bus(bus=old_bus)
+        self.store_bus(bus=new_bus)
+
+        # Rewrite the injectors and generators associated to the old bus
+        # (since store_bus erases them)
+        self.bus_to_injectors[new_bus] = injectors
+        self.bus_to_generators[new_bus] = generators
+
+        # Replace the old bus in branches
+        for branch in self.branches:
+            if branch.from_bus is old_bus:
+                branch.from_bus = new_bus
+            if branch.to_bus is old_bus:
+                branch.to_bus = new_bus
+
+        # Replace the old bus in generators
+        for gen in self.generators:
+            if gen.bus is old_bus:
+                gen.bus = new_bus
+
+        # Replace the old bus in injectors
+        for inj in self.injectors:
+            if inj.bus is old_bus:
+                inj.bus = new_bus
+
+
     def store_branch(self, branch: records.Branch) -> None:
         """
         Store branch keeping self.branches sorted: lines -> transformer.
@@ -182,6 +251,22 @@ class StaticSystem:
             self.transformers.append(branch)
             self.transformer_dict[branch.name] = branch
 
+    def remove_branch(self, branch: records.Branch) -> None:
+        """
+        Remove branch from the system.
+        """
+
+        # Remove branch from the list of branches (irrespective of branch type)
+        self.branches.remove(branch)
+
+        # Remove branch depending on its type
+        if branch.branch_type == "Line":
+            self.lines.remove(branch)
+            del self.line_dict[branch.name]
+        elif branch.branch_type == "Transformer":
+            self.transformers.remove(branch)
+            del self.transformer_dict[branch.name]
+
     def store_generator(self, gen: records.Generator) -> None:
         """
         Add a (large) generator to a PV or slack bus.
@@ -200,6 +285,15 @@ class StaticSystem:
         self.gen_dict[gen.name] = gen
         bisect.insort(self.generators, gen)
         bisect.insort(self.bus_to_generators[gen.bus], gen)
+
+    def remove_generator(self, gen: records.Generator) -> None:
+        """
+        Remove generator from the system.
+        """
+
+        self.generators.remove(gen)
+        del self.gen_dict[gen.name]
+        self.bus_to_generators[gen.bus].remove(gen)
 
     def store_injector(self, inj: records.Injector) -> None:
         """
@@ -234,6 +328,15 @@ class StaticSystem:
         self.inj_dict[inj.name] = inj
         bisect.insort(self.injectors, inj)
         bisect.insort(self.bus_to_injectors[inj.bus], inj)
+
+    def remove_injector(self, inj: records.Injector) -> None:
+        """
+        Remove injector from the system.
+        """
+
+        self.injectors.remove(inj)
+        del self.inj_dict[inj.name]
+        self.bus_to_injectors[inj.bus].remove(inj)
 
     def add_slack(
         self,
@@ -1007,14 +1110,14 @@ class StaticSystem:
                     X_perc = float(words[6 + offset])
                     R_pu = utils.change_base(
                         quantity=R_perc / 100,
-                        Sb_old=Snom_MVA,
-                        Sb_new=sys.base_MVA,
+                        base_MVA_old=Snom_MVA,
+                        base_MVA_new=sys.base_MVA,
                         type="Z",
                     )
                     X_pu = utils.change_base(
                         quantity=X_perc / 100,
-                        Sb_old=Snom_MVA,
-                        Sb_new=sys.base_MVA,
+                        base_MVA_old=Snom_MVA,
+                        base_MVA_new=sys.base_MVA,
                         type="Z",
                     )
                     # Transformers rarely have B:
@@ -1373,6 +1476,8 @@ class StaticSystem:
                 [
                     self.lines.index(line),
                     line.name,
+                    line.from_bus.name,
+                    line.to_bus.name,
                     line.R_pu,
                     line.X_pu,
                     line.from_Y_pu.imag,
@@ -1391,6 +1496,8 @@ class StaticSystem:
             line_headers = [
                 "\nIndex",
                 "\nName",
+                "\nFrom bus",
+                "\nTo bus",
                 "\nR (pu)",
                 "\nX (pu)",
                 "B from\n(pu)",
@@ -1405,6 +1512,8 @@ class StaticSystem:
 
             # Build line table
             line_precision = (
+                0,
+                0,
                 0,
                 0,
                 ".4f",
@@ -1598,9 +1707,9 @@ class StaticSystem:
 
         for bus in self.buses:
             if attr == "PL_pu":
-                color = bus.P_to_network_pu * self.base_MVA
+                color = self.get_sensitive_load_MW_Mvar(bus=bus)[0]
             elif attr == "QL_pu":
-                color = bus.Q_to_network_pu * self.base_MVA
+                color = self.get_sensitive_load_MW_Mvar(bus=bus)[1]
             else:
                 color = getattr(bus, attr)
 
@@ -1633,13 +1742,13 @@ class StaticSystem:
         }
 
         # Define label (they're predefined)
-        if parameter == "QL":
+        if parameter == "QL_pu":
             label = "Reactive load (Mvar)"
-        elif parameter == "PL":
+        elif parameter == "PL_pu":
             label = "Active load (MW)"
-        elif parameter == "Vb":
+        elif parameter == "base_kV":
             label = "Nominal voltage (kV)"
-        elif parameter == "theta":
+        elif parameter == "theta_radians":
             label = "Phase (degrees)"
         else:
             label = "Voltage (pu)"
@@ -2109,6 +2218,27 @@ class StaticSystem:
         have different voltages. This shouldn't make much of a difference.
         """
 
+        # Change the base power of buses and branches
+        base_kV_new = bus.base_kV
+        base_MVA_new = self.base_MVA
+        # Converting the branches first is important, so that buses still
+        # preserve the old values
+        for new_element in new_sys.branches + new_sys.buses:
+            # Fetch old base kV
+            if isinstance(new_element, records.Branch):
+                base_kV_old = new_element.from_bus.base_kV
+            elif isinstance(new_element, records.Bus):
+                base_kV_old = new_element.base_kV
+            # Fetch old base MVA
+            base_MVA_old = new_sys.base_MVA
+            # Change base
+            new_element.change_base(
+                base_MVA_old=base_MVA_old,
+                base_MVA_new=base_MVA_new,
+                base_kV_old=base_kV_old,
+                base_kV_new=base_kV_new,
+            )
+
         # Match power (up to 1e-9 pu)
         new_sys.match_power(
             P_desired_MW=P_desired_MW,
@@ -2118,23 +2248,22 @@ class StaticSystem:
             tol=P_desired_MW / self.base_MVA / 1e9,
         )
 
-        # Change the base power of buses and branches
-        for new_element in new_sys.buses + new_sys.branches:
-            new_element.change_base_power(
-                Sb_old=new_sys.base_MVA, Sb_new=self.base_MVA
-            )
-
-        # Add all PQ and PV buses from new_sys
+        # Add all PQ and PV buses from new_sys. This should be done before
+        # replacing the slack, as the replacement will probably not be a slack
+        # and hence the method would try to add it a second time (which would
+        # raise a RuntimeError in store_bus()).
         for new_bus in new_sys.non_slack_buses:
             self.store_bus(bus=new_bus)
 
-        # In new_sys, replace all appearances of slack with bus
-        for new_branch in new_sys.branches:
-            new_branch.replace_bus_by(old_bus=new_sys.slack, new_bus=bus)
+        # Replace old slack by new bus. This takes care of the dictionaries,
+        # the lists,
+        new_sys.replace_bus(old_bus=new_sys.slack, new_bus=bus)
 
         # Change system that "owns" each branch
         for new_branch in new_sys.branches:
             new_branch.sys = self
+
+        # The following methods make sure that the dictionaries are updated
 
         # Add all branches of new_sys
         for new_branch in new_sys.branches:
@@ -2149,9 +2278,11 @@ class StaticSystem:
         for new_inj in new_sys.injectors:
             self.store_injector(inj=new_inj)
 
-    def remove_loads_at_bus(self, bus: records.Bus) -> None:
+    def remove_loads_at_bus(self, bus: records.Bus) -> tuple[float, float]:
         """
         Remove all loads at bus (both fixed and voltage-dependent).
+
+        Returns the exponents alpha and beta of the last removed load.
         """
 
         # Remove fixed loads
@@ -2169,6 +2300,11 @@ class StaticSystem:
         for inj in sensitive_loads:
             self.injectors.remove(inj)
             self.bus_to_injectors[bus].remove(inj)
+
+        if len(sensitive_loads) > 0:
+            return inj.alpha, inj.beta
+        else:
+            return 0, 0
 
     def disaggregate_load(
         self, bus: records.Bus, systems: Sequence["StaticSystem"]
@@ -2219,7 +2355,19 @@ class StaticSystem:
         # Rename buses in each component network
         for i, sys in enumerate(subset):
             for new_bus in sys.buses:
-                new_bus.name = f"{bus.name}_{i+1}_{new_bus.name}"
+                # Define new name
+                extended_name = f"{bus.name}_{i+1}_{new_bus.name}"
+                # Update bus_dict
+                if new_bus.name in sys.bus_dict:
+                    sys.bus_dict[extended_name] = new_bus
+                    del sys.bus_dict[new_bus.name]
+                # The other dictionaries don't have to be updated because
+                # they map buses (not names) to objects.
+                # Change bus name
+                new_bus.name = extended_name
+
+            # Renaming branches, generators, and injectors does not require
+            # changing any dictionary
             for new_branch in sys.branches:
                 new_branch.name = f"{bus.name}_{i+1}_{new_branch.name}"
             for new_gen in sys.generators:
@@ -2228,7 +2376,7 @@ class StaticSystem:
                 new_inj.name = f"{bus.name}_{i+1}_{new_inj.name}"
 
         # Replace load by networks
-        self.remove_loads_at_bus(bus=bus)
+        alpha, beta = self.remove_loads_at_bus(bus=bus)
 
         for sys in subset:
             S_slack_MVA = sys.get_S_slack_MVA()
@@ -2238,6 +2386,10 @@ class StaticSystem:
                 P_desired_MW=kP * S_slack_MVA.real,
                 Q_desired_Mvar=kQ * S_slack_MVA.imag,
             )
+            # Make all loads at bus voltage-sensitive
+            for inj in sys.injectors:
+                if isinstance(inj, records.Load):
+                    inj.make_voltage_sensitive(alpha=alpha, beta=beta)
 
         # Make sure that power flow continuity is given
         self.build_Y()
