@@ -388,8 +388,6 @@ def test_increase_Q():
     PC, nordic = get_controller_and_system()
     PC.update_controlled_DERAs()
 
-    print([str(dist) for dist in PC.increase_Q()])
-
 
 
 def test_get_region_number():

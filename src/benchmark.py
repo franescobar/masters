@@ -78,7 +78,8 @@ class PabonController(control.Controller):
         """
 
         # We begin by fetching the LV bus of the controlled transformer.
-        LV_bus = self.transformer.get_LV_bus()
+        LV_bus_name = self.transformer.get_LV_bus().name
+        LV_bus = self.sys.bus_dict[LV_bus_name]
 
         # We then isolate the buses downstream of the transformer.
         downstream_buses = self.sys.isolate_buses_by_kV(starting_bus=LV_bus)
