@@ -55,6 +55,20 @@ def subsetsum(
     removing elements from 'solution' as soon as I reported their index.
     """
 
+    # Correct small errors to that they are 0
+    def round_small_zeros(x: np.ndarray) -> np.ndarray:
+        tolerance = 1e-6
+        if x[0] < - tolerance or x[1] < - tolerance:
+            raise ValueError("Power is negative beyond tolerance.")
+
+        first_entry = 0 if x[0] < 0 else x[0]
+        second_entry = 0 if x[1] < 0 else x[1]
+
+        return np.array([first_entry, second_entry])
+
+    powers = [round_small_zeros(power) for power in powers]
+    S = round_small_zeros(S)
+
     # Scale both the powers and the target vector to integers
     divisor = precision * np.linalg.norm(S) if np.linalg.norm(S) else precision
     original_powers = powers
