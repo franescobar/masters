@@ -721,7 +721,8 @@ class Experiment:
             # Display progress
             perc = int(round(100 * tk / self.horizon))
             if 0 < tk and np.isclose(perc % 1, 0, atol=1e-3):
-                print("", end=f"\rSimulation progress: {perc}%")
+                # print("", end=f"\rSimulation progress: {perc} %")
+                print(f"Simulation progress is {100*tk/self.horizon:.2f}")
 
             # Simulate if voltages are OK
             try:

@@ -16,6 +16,7 @@ import metrics
 import nli
 import visual
 import records
+import utils
 
 
 # Modules from the standard library
@@ -25,13 +26,19 @@ import records
 
 # The following functions define experiments ready to be run.
 
-def simulate_DERAs(penetration: float = 0.1) -> experiment.Experiment:
+def simulate_DERAs(penetration: float = 0.1,
+                   disaggregate: bool = False) -> experiment.Experiment:
     """
     Simulate the DERAs with and without the line tripping.
     """
 
     # Import the test system with a certain DERA penetration.
-    nordic = test_systems.get_Nordic_with_DERAs(penetration=penetration)
+    if not disaggregate:
+        nordic = test_systems.get_Nordic_with_DERAs(penetration=penetration)
+    else:
+        nordic = test_systems.get_disaggregated_nordic(penetration=penetration,
+                                                       coverage_percentage=0.2,
+                                                       filename="disaggregated_nordic.txt")
 
     # Add the detectors to the system (NLIs and field currents).
     nordic.add_detector(
@@ -158,8 +165,21 @@ def simulate_DERAs(penetration: float = 0.1) -> experiment.Experiment:
 
     # Set the solver and the horizon
     exp.set_solver_and_horizon(
-        solver_settings_dict={},
+        solver_settings_dict={
+            # Enlarging the maximum step does not seem to make a difference
+            "max_h": 0.02,
+            "min_h": 0.005
+        },
         horizon=200,
+    )
+
+    exp.set_RAMSES_settings(
+        settings_dict={
+            "SPARSE_SOLVER": "ma41",
+            # "SKIP_CONV": "T",
+            "NB_THREADS": 4,
+            # "FULL_UPDATE": "F",
+        }
     )
 
     return exp, nordic
@@ -170,8 +190,9 @@ if __name__ == "__main__":
     # Experiment: Simulation of DERAs without MPC
     #############################################
 
-    p = 0.0
-    exp, nordic = simulate_DERAs(penetration=p)
+    p = 0.2
+    exp, nordic = simulate_DERAs(penetration=p, disaggregate=True)
     print(f"Running experiment with DERA penetration = {p*100:.0f} %...")
-    exp.run()
+    with utils.Timer(name="Full experiment"):
+        exp.run()
 
