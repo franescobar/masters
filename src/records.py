@@ -233,10 +233,17 @@ class Bus(Record):
     def get_pars(self) -> list[Parameter]:
         return self.pars
 
-    def change_base_power(self, Sb_old: float, Sb_new: float) -> None:
+    def change_base(self,
+                    base_MVA_old: float,
+                    base_MVA_new: float,
+                    base_kV_old: float,
+                    base_kV_new: float) -> None:
         """
-        Change the power base of the bus.
+        Change the power of the bus.
         """
+
+        # Change base voltage
+        self.base_kV = base_kV_new
 
         # Change powers in pu
         for attr in ["PL_pu", "QL_pu", "allocated_PL_pu", "allocated_QL_pu"]:
@@ -245,8 +252,10 @@ class Bus(Record):
                 attr,
                 change_base(
                     quantity=getattr(self, attr),
-                    Sb_old=Sb_old,
-                    Sb_new=Sb_new,
+                    base_MVA_old=base_MVA_old,
+                    base_MVA_new=base_MVA_new,
+                    base_kV_old=base_kV_old,
+                    base_kV_new=base_kV_new,
                     type="S",
                 ),
             )
@@ -258,8 +267,10 @@ class Bus(Record):
                 attr,
                 change_base(
                     quantity=getattr(self, attr),
-                    Sb_old=Sb_old,
-                    Sb_new=Sb_new,
+                    base_MVA_old=base_MVA_old,
+                    base_MVA_new=base_MVA_new,
+                    base_kV_old=base_kV_old,
+                    base_kV_new=base_kV_new,
                     type="Y",
                 ),
             )
@@ -694,6 +705,38 @@ class Load(Injector):
         self.beta = self.beta1 = beta
         self.V0 = self.bus.V_pu
 
+    def increment_P_by(self, delta_P_MW: float) -> None:
+        """
+        Increment active power by a value.
+        """
+
+        self.P0_MW += delta_P_MW
+        self.allocated_P0_MW += delta_P_MW
+
+    def increment_Q_by(self, delta_Q_Mvar: float) -> None:
+        """
+        Increment reactive power by a value.
+        """
+
+        self.Q0_Mvar += delta_Q_Mvar
+        self.allocated_Q0_Mvar += delta_Q_Mvar
+
+    def set_P_to(self, PL_MW: float) -> None:
+        """
+        Set active power to a value.
+        """
+
+        self.P0_MW = PL_MW
+        self.allocated_P0_MW = PL_MW
+
+    def set_Q_to(self, QL_Mvar: float) -> None:
+        """
+        Set reactive power to a value.
+        """
+
+        self.Q0_Mvar = QL_Mvar
+        self.allocated_Q0_Mvar = QL_Mvar
+
     def scale_P_by(self, factor: float) -> None:
         """
         Scale active load by a factor.
@@ -838,10 +881,19 @@ class Branch(Record):
         elif old_bus is self.to_bus:
             self.to_bus = new_bus
 
-    def change_base_power(self, Sb_old: float, Sb_new: float) -> None:
+    def change_base(self,
+                    base_MVA_old: float,
+                    base_MVA_new: float,
+                    base_kV_old: float,
+                    base_kV_new: float) -> None:
         """
         Change the power base of the branch.
         """
+
+        if self.branch_type == "Transformer" and self.n_pu != 1:
+            raise NotImplementedError(
+                "Changing the base of a transformer is not implemented."
+            )
 
         # Change impedances
         for attr in ["R_pu", "X_pu"]:
@@ -850,8 +902,10 @@ class Branch(Record):
                 attr,
                 change_base(
                     quantity=getattr(self, attr),
-                    Sb_old=Sb_old,
-                    Sb_new=Sb_new,
+                    base_MVA_old=base_MVA_old,
+                    base_MVA_new=base_MVA_new,
+                    base_kV_old=base_kV_old,
+                    base_kV_new=base_kV_new,
                     type="Z",
                 ),
             )
@@ -863,8 +917,10 @@ class Branch(Record):
                 attr,
                 change_base(
                     quantity=getattr(self, attr),
-                    Sb_old=Sb_old,
-                    Sb_new=Sb_new,
+                    base_MVA_old=base_MVA_old,
+                    base_MVA_new=base_MVA_new,
+                    base_kV_old=base_kV_old,
+                    base_kV_new=base_kV_new,
                     type="Y",
                 ),
             )
