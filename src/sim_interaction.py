@@ -32,6 +32,8 @@ class Disturbance:
         ],
         par_name: str = None,
         par_value: Union[float, None, str] = None,
+        duration: float = 0.0,
+        units: str = "SETP ",
     ) -> None:
         """
         For buses, par_name should be either 'fault' or 'clearance', whereas
@@ -103,6 +105,26 @@ class Disturbance:
             par_value  # new value of the parameter that is modified
         )
 
+        # The following attributes might be useful when asking injectors to
+        # ramp up or down, for instance when benchmarking my MPC controller
+        # against the control from Pabón et al.
+        if (
+            not isinstance(object_acted_on, records.Injector)
+            and
+            (
+                not np.isclose(duration, 0.0)
+                or
+                units != "SETP "
+            )
+        ):
+            raise NotImplementedError(
+                "Disturbances with duration != 0.0 and units != STEP "
+                "are not implemented yet for injectors."
+            )
+
+        self.duration = duration  # duration of the disturbance
+        self.units = units  # MW/Mvar, %, SETP
+
     def __lt__(self, other: "Disturbance") -> bool:
         """
         Implement ordering of disturbances by their time of ocurrence.
@@ -124,6 +146,8 @@ class Disturbance:
 
         the time of ocurrence is 1.000 and the descriptor is
         FAULT BUS SEVEN 0.1. This method returns the descriptor.
+
+        Notice that this method implements a sort of "multiple dispatch".
         """
 
         if isinstance(self.object_acted_on, records.Bus):
@@ -147,13 +171,24 @@ class Disturbance:
 
         elif isinstance(self.object_acted_on, records.Injector):
             # Change parameter of an injector
+            if np.isclose(self.duration, 0.0):
+                duration = "0.0"
+            else:
+                duration = str(self.duration)
             descriptor = (
                 f"CHGPRM INJ {self.object_acted_on.name} {self.par_name} "
-                f"{self.par_value} SETP 0.0"
+                # The missing space after self.units is intentional. See the
+                # space in the corresponding argument of the __init__ method.
+                # This is to allow passing units = "" and have the disturbance
+                # make an increment, not an absolute change. This would behave
+                # as with DCTLs; see the elif below.
+                f"{self.par_value} {self.units}{duration}"
             )
 
         elif isinstance(self.object_acted_on, records.DCTL):
-            # Change parameter of the DCTL
+            # Change parameter of the DCTL. Note that since this descriptor
+            # does not include SETP, the parameter is incremented (resp.
+            # decremented) by the value of par_value.
             descriptor = (
                 f"CHGPRM DCTL {self.object_acted_on.name} {self.par_name} "
                 f"{self.par_value} 0.0"
