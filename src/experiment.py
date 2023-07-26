@@ -721,8 +721,8 @@ class Experiment:
             # Display progress
             perc = int(round(100 * tk / self.horizon))
             if 0 < tk and np.isclose(perc % 1, 0, atol=1e-3):
-                # print("", end=f"\rSimulation progress: {perc} %")
-                print(f"Simulation progress is {100*tk/self.horizon:.2f}")
+                print("", end=f"\rSimulation progress: {perc} %")
+                # print(f"Simulation progress is {100*tk/self.horizon:.2f}")
 
             # Simulate if voltages are OK
             try:
@@ -749,7 +749,7 @@ class Experiment:
         # Finish simulation
         sys.ram.endSim()
 
-    def run(self):
+    def run(self, remove_trj: bool = True):
         """
         Run the experiment.
 
@@ -772,8 +772,13 @@ class Experiment:
 
                         # Add controllers to the system (con[1] is iterable)
                         if con[0] != "No control":
-                            print(con[1])
-                            sys.add_controllers(con[1])
+                            # A deep copy must be generated here. It does not
+                            # suffice to generate it in self.add_controllers,
+                            # since we iterate over self.controllers in this
+                            # for loop several times.
+                            sys.add_controllers(
+                                [copy.deepcopy(c) for c in con[1]]
+                            )
 
                         # Add observables from detectors
                         for d in sys.detectors:
@@ -813,7 +818,8 @@ class Experiment:
                         self.document_experiment()
 
                         # Remove the trj
-                        os.remove(map2out(filename=self.traj_filename))
+                        if remove_trj:
+                            os.remove(map2out(filename=self.traj_filename))
 
                         def map2metric(filename: str) -> str:
                             """
