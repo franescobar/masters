@@ -995,7 +995,7 @@ class MPC_controller(Controller):
         ):
             self.build_sensitivities()
 
-        # Update the twin
+        # Update the twin (which also updates the topology and connectivity)
         self.sys.update_twin()
 
         # Initialize arrays
@@ -1162,6 +1162,14 @@ class MPC_controller(Controller):
         dP = x[self.T : 2 * self.T]
         dQ = x[2 * self.T : 3 * self.T]
         slacks = x[-4 * self.T :]
+
+        print(f"\n\nIteration {self.current_iter} of MPC controller\n")
+        print("Solution to the optimization problem:\n")
+        print(f"dr = {dr}")
+        print(f"dP = {dP}")
+        print(f"dQ = {dQ}")
+        print(f"slacks = {slacks}\n")
+        return dists
 
         # Store solutions from this iteration. The elements of these lists are
         # themselves 1D np.ndarrays.

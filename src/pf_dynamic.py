@@ -480,7 +480,7 @@ class System(pf_static.StaticSystem):
             self.ram.addDisturb(
                 # We add the duration because otherwise RAMSES will complain and
                 # say we're trying to apply a disturbance in the past.
-                t_dist=disturbance.ocurrence_time + disturbance.duration, 
+                t_dist=disturbance.ocurrence_time + disturbance.duration,
                 disturb=str(disturbance)
             )
 
@@ -642,12 +642,22 @@ class System(pf_static.StaticSystem):
         the element determines the corruption.
 
         By default, the corruption is the identity function.
-
-        IMPORTANT: THIS METHOD SHOULD ALSO UPDATE THE TOPOLOGY OF THE TWIN,
-        AS WELL AS THE CONECTIVITY.
         """
 
-        # Update topology and connectivity
+        if self.twin is None:
+            raise RuntimeError(
+                f"Twin has not been generated. "
+                f"Call {self.__class__.__name__}.generate_twin() first, "
+                f"and do it when specifying the controller, before "
+                f"disaggregating the system."
+            )
+
+        # Update topology
+        for branch, twin_branch in zip(self.branches, self.twin.branches):
+            twin_branch.in_operation = branch.in_operation
+
+        # Update connectivity
+        self.twin.update_connectivity()
 
         # Measuring the voltages is needed to close the feedback loop of the
         # MPC. In fact, some of the matrices that this controller uses
