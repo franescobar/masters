@@ -39,8 +39,8 @@ class Parameter:
         if isinstance(self.value, str):
             return self.value
 
-        # The following is deprecated. For simplicity, digits now takes the 
-        # default value of 10.
+        # The following is deprecated. For simplicity, digits now takes the
+        # default value of 6.
         # If no significant digits are specified, return the parameter as is
         elif self.digits is None:
             return str(float(self.value))
