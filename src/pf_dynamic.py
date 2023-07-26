@@ -470,9 +470,19 @@ class System(pf_static.StaticSystem):
         Send a single disturbance to RAMSES.
         """
 
-        self.ram.addDisturb(
-            t_dist=disturbance.ocurrence_time, disturb=str(disturbance)
-        )
+        true_ocurrence_time = self.ram.getSimTime() + disturbance.duration
+        # The 1 is added just in case
+        if true_ocurrence_time + 1 < self.ram.getInfTime():
+            # Not adding this conditional may raise an error:
+            # You're trying to add a disturbance beyond the STOP time.
+            print(f"Sending disturbance at {disturbance.ocurrence_time + disturbance.duration}")
+            print(f"Descriptor is {str(disturbance)}")
+            self.ram.addDisturb(
+                # We add the duration because otherwise RAMSES will complain and
+                # say we're trying to apply a disturbance in the past.
+                t_dist=disturbance.ocurrence_time + disturbance.duration, 
+                disturb=str(disturbance)
+            )
 
     def send_disturbances(
         self, disturbances: Sequence[sim_interaction.Disturbance]
