@@ -17,6 +17,7 @@ import nli
 import visual
 import records
 import utils
+import benchmark
 
 
 # Modules from the standard library
@@ -100,13 +101,13 @@ def simulate_DERAs(penetration: float = 0.1,
         )
     )
 
-    # # Add to the experiment the desired visualizations.
-    # exp.add_visualizations(
-    #     visual.NLI_plots(
-    #         receiving_buses=["4041", "4042"]
-    #     ),
-    #     visual.CentralVoltages()
-    # )
+    # Add to the experiment the desired visualizations.
+    exp.add_visualizations(
+        # visual.NLI_plots(
+        #     receiving_buses=["4041", "4042"]
+        # ),
+        # visual.CentralVoltages()
+    )
 
     # Add to the experiment all transmission quantities as observables
     # (implementing a nicer interface would be expensive).
@@ -167,10 +168,11 @@ def simulate_DERAs(penetration: float = 0.1,
     exp.set_solver_and_horizon(
         solver_settings_dict={
             # Enlarging the maximum step does not seem to make a difference
-            "max_h": 0.02,
-            "min_h": 0.005
+            "max_h": 0.001,
+            "min_h": 0.001
         },
-        horizon=200,
+        # This should be enough to observe the control
+        horizon=500,
     )
 
     exp.set_RAMSES_settings(
@@ -191,8 +193,26 @@ if __name__ == "__main__":
     #############################################
 
     p = 0.2
-    exp, nordic = simulate_DERAs(penetration=p, disaggregate=True)
+    exp, nordic = simulate_DERAs(penetration=p, disaggregate=False)
+
+    # Add Pabons controller to the experiment
+    PC_controllers = [
+        benchmark.PabonController(
+            transformer=transformer,
+            period=1,
+            epsilon_pu=0.02,
+            delta_pu=0.01,
+            increase_rate_pu_per_s=0.05,
+        )
+        for transformer in nordic.transformers
+        if transformer.touches(location="CENTRAL")
+    ]
+
+    print(PC_controllers)
+
+    exp.add_controllers("Pabon", *PC_controllers)
+
     print(f"Running experiment with DERA penetration = {p*100:.0f} %...")
     with utils.Timer(name="Full experiment"):
-        exp.run()
+        exp.run(remove_trj=False)
 
