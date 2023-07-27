@@ -56,8 +56,11 @@ def var2mho(Mvar_3P: float, kV_LL: float) -> float:
 
 
 def change_base(
-    quantity: complex, base_MVA_old: float, base_MVA_new: float,
-    base_kV_old: float = 1.0, base_kV_new: float = 1.0,
+    quantity: complex,
+    base_MVA_old: float,
+    base_MVA_new: float,
+    base_kV_old: float = 1.0,
+    base_kV_new: float = 1.0,
     type: str = "Z",
 ) -> complex:
     """
@@ -344,3 +347,21 @@ def reduce(
         print("I had trouble ensuring a small IAE. Check data.")
 
     return introduce_fixed_points(x_reduced, y_reduced, step)
+
+
+def downsample_every(
+    x: Sequence[float],
+    y: Sequence[float],
+    delta_x: float = 1,
+) -> np.ndarray:
+    """
+    Downsample data by keeping only one point every delta_x.
+
+    The first point is always kept and subsequent samples are, in general,
+    interpolated linearly from existing samples.
+    """
+
+    new_x = np.arange(x[0], x[-1], delta_x)
+    new_y = np.interp(new_x, x, y)
+
+    return new_x, new_y

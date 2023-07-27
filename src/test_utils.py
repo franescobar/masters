@@ -53,11 +53,13 @@ def test_var2mho():
 
 def test_change_base():
     assert np.isclose(
-        change_base(quantity=2, base_MVA_old=200, base_MVA_new=100, type="S"), 4
+        change_base(quantity=2, base_MVA_old=200, base_MVA_new=100, type="S"),
+        4,
     ), "Power conversion is not working"
 
     assert np.isclose(
-        change_base(quantity=1, base_MVA_old=200, base_MVA_new=100, type="Z"), 0.5
+        change_base(quantity=1, base_MVA_old=200, base_MVA_new=100, type="Z"),
+        0.5,
     ), "Impedance conversion is not working"
 
 
@@ -197,6 +199,36 @@ def test_reduce():
     assert did_reduce == "y", "reduce is not working"
 
 
+def test_downsample_every():
+    """
+    Test downsampling with a constant x step.
+    """
+
+    x = np.linspace(0, 4 * np.pi, 10_000)
+    y = np.sin(x)
+
+    x_downsampled, y_downsampled = downsample_every(x=x, y=y, delta_x=0.1)
+
+    plt.plot(x, y, label="Original")
+    plt.plot(
+        x_downsampled,
+        y_downsampled,
+        label="Downsampled",
+        marker="x",
+        linestyle="None",
+    )
+    plt.legend()
+    plt.show()
+
+    looks_nice = input("Does the plot look correct? (y/n) ")
+    did_downsample = input(
+        f"Downsampled to {len(x_downsampled)/len(x)*100:.2f} %. OK? (y/n) "
+    )
+
+    assert looks_nice == "y", "downsample_every is not working"
+    assert did_downsample == "y", "downsample_every is not working"
+
+
 if __name__ == "__main__":
     test_Timer()
     test_pol2rect()
@@ -209,5 +241,6 @@ if __name__ == "__main__":
     test_remove_duplicates()
     test_introduce_fixed_points()
     test_reduce()
+    test_downsample_every()
 
     print("Module 'utils' passed all tests!")
