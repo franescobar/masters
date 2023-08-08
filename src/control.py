@@ -243,7 +243,7 @@ class MPC_controller(Controller):
         This will funnel the inputs.
         """
 
-        lower_bound = np.array([[-1/k + 1/Np] for k in range(1, Np+1)])
+        lower_bound = 5*np.array([[-1/k + 1/Np] for k in range(1, Np+1)])
         upper_bound = 1e3 + lower_bound
 
         return lower_bound, upper_bound
@@ -261,7 +261,7 @@ class MPC_controller(Controller):
             bus=bus, Np=Np, iter=iter, half_db_pu=0.1
         ),
         VD_fun=lambda bus, Np, iter: MPC_controller.v_bound(
-            bus=bus, Np=Np, iter=iter, half_db_pu=0.05
+            bus=bus, Np=Np, iter=iter, half_db_pu=0.5
         ),
         # Return a tuple of arrays (min, max, min_delta, max_delta)
         P_fun=lambda bus, Nc, iter: MPC_controller.power_bound(
@@ -951,6 +951,9 @@ class MPC_controller(Controller):
                 der_NLI = (np.array(NLIs_1) - np.array(NLIs_0)) / dx
                 der_VT = (np.array(VTs_1) - np.array(VTs_0)) / dx
                 der_VD = (np.array(VDs_1) - np.array(VDs_0)) / dx
+
+                if attr == "QL":
+                    der_NLI *= 0
 
                 # Compute and store derivatives
                 self.partial_u_N[:, attr_no * self.T + trafo_no] = der_NLI
