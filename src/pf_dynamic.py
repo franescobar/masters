@@ -475,8 +475,6 @@ class System(pf_static.StaticSystem):
         if true_ocurrence_time + 1 < self.ram.getInfTime():
             # Not adding this conditional may raise an error:
             # You're trying to add a disturbance beyond the STOP time.
-            print(f"Sending disturbance at {disturbance.ocurrence_time + disturbance.duration}")
-            print(f"Descriptor is {str(disturbance)}")
             self.ram.addDisturb(
                 # We add the duration because otherwise RAMSES will complain and
                 # say we're trying to apply a disturbance in the past.
@@ -561,7 +559,8 @@ class System(pf_static.StaticSystem):
         Fetch controller commands and add disturbances to queue.
         """
 
-        # Apply actions from non-OLTC controllers
+        # Apply actions from non-OLTC controllers (only if there is a
+        # contingency)
         if self.has_contingency():
             for c in self.controllers:
                 if self.get_t_now() - c.t_last_action > c.period:
@@ -657,7 +656,7 @@ class System(pf_static.StaticSystem):
             twin_branch.in_operation = branch.in_operation
 
         # Update connectivity
-        self.twin.update_connectivity()
+        self.twin.update_connectivity(reference_bus=self.twin.slack)
 
         # Measuring the voltages is needed to close the feedback loop of the
         # MPC. In fact, some of the matrices that this controller uses
