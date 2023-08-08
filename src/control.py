@@ -237,10 +237,23 @@ class MPC_controller(Controller):
 
         return p_min_pu, p_max_pu, dp_min_pu, dp_max_pu
 
+    @staticmethod
+    def NLI_bound(bus: records.Bus, Np: int, iter: int) -> tuple[np.ndarray]:
+        """
+        This will funnel the inputs.
+        """
+
+        lower_bound = np.array([[-1/k + 1/Np] for k in range(1, Np+1)])
+        upper_bound = 1e3 + lower_bound
+
+        return lower_bound, upper_bound
+
+
     def set_bounds(
         self,
         # Fixed value, hard-coded
         NLI_min: float = 0.1,
+        NLI_fun: callable = None,
         # Return a tuple of arrays (min, max). We use 0.1 and 0.05 as half
         # deadbands of transmission and distribution voltages, respectively,
         # as is normally dictated in grid codes.
@@ -399,14 +412,28 @@ class MPC_controller(Controller):
         self.VD_lower = np.vstack([get_VD_bound(0, k) for k in range(self.Np)])
         self.VD_upper = np.vstack([get_VD_bound(1, k) for k in range(self.Np)])
 
-        # Finally, we set the bounds on the NLI (our stability indicator). The
-        # lower bound is taken as a parameter, whereas the upper bound is set to
-        # a very large number (to avoid problems that np.inf might cause).
-        self.NLI_lower = NLI_min * np.ones([self.Np * self.B, 1])
-        # Note: the following line was implemented wrong, as it was setting the
-        # lower bound as 1e6 * self.NLI_lower (instead of an addition). This
-        # would have failed whenever NLI_min = 0.
-        self.NLI_upper = 1e6 * np.ones([self.Np * self.B, 1])
+        if NLI_fun is None:
+            # Finally, we se`t the bounds on the NLI (our stability indicator). The
+            # lower bound is taken as a parameter, whereas the upper bound is set to
+            # a very large number (to avoid problems that np.inf might cause).
+            self.NLI_lower = NLI_min * np.ones([self.Np * self.B, 1])
+            # Note: the following line was implemented wrong, as it was setting the
+            # lower bound as 1e6 * self.NLI_lower (instead of an addition). This
+            # would have failed whenever NLI_min = 0.
+            self.NLI_upper = 1e6 * np.ones([self.Np * self.B, 1])
+        else:
+            single_NLI_lower, single_NLI_upper = NLI_fun(
+                bus=None, Np=self.Np, iter=None
+            )
+
+            def multiply(x: np.ndarray, N: int) -> np.ndarray:
+                return np.array([[k] 
+                                 for i in zip(*(N*(x[:, 0],)))
+                                 for k in i
+                                 ])
+
+            self.NLI_lower = multiply(x=single_NLI_lower, N=self.B)
+            self.NLI_upper = multiply(x=single_NLI_upper, N=self.B)
 
     @staticmethod
     def some_setpoint(
@@ -833,6 +860,11 @@ class MPC_controller(Controller):
         # Copy twin to compute derivatives
         sys = copy.deepcopy(self.sys.twin)
 
+        # input(f"Creating derivatives. Press enter to see the system.")
+        sys.run_pf(flat_start=False)
+        print(sys.generate_table())
+        # input(f"Press enter to continue...")
+
         # Iterate over all substations
         for trafo_no, trafo in enumerate(self.controlled_transformers):
             for attr_no, attr in enumerate(["n", "PL", "QL"]):
@@ -988,15 +1020,20 @@ class MPC_controller(Controller):
         corruptions.
         """
 
+        # Update the twin (which also updates the topology and connectivity)
+        self.sys.update_twin()
+
+        if (
+            not hasattr(self, "C1")
+        ):
+            self.build_structural_matrices()
+
         if (
             not hasattr(self, "D_u_N")
             or not hasattr(self, "D_u_VT")
             or not hasattr(self, "D_u_VD")
         ):
             self.build_sensitivities()
-
-        # Update the twin (which also updates the topology and connectivity)
-        self.sys.update_twin()
 
         # Initialize arrays
         u_meas = np.zeros([3 * self.T, 1])
@@ -1030,22 +1067,31 @@ class MPC_controller(Controller):
             detector = next(
                 detector
                 for detector in self.sys.detectors
-                if detector.corridor == corridor and detector.type == "NLI"
+                if detector.type == "NLI" 
+                and 
+                detector.observed_corridor == corridor
+                # if detector.corridor == corridor and detector.type == "NLI"
             )
             # Store its reading
             NLI_meas[corridor_no, 0] = detector.get_reading()
 
         # Measure VT (must be read from the twin)
         VT_meas[:, 0] = [
-            self.twin.get_transformer(name=transformer_name).get_HV_bus().V_pu
+            self.sys.twin.get_transformer(name=transformer_name).get_HV_bus().V_pu
             for transformer_name in self.controlled_transformers
         ]
 
         # Measure VD (must be read from the twin)
         VD_meas[:, 0] = [
-            self.twin.get_transformer(name=transformer_name).get_LV_bus().V_pu
+            self.sys.twin.get_transformer(name=transformer_name).get_LV_bus().V_pu
             for transformer_name in self.controlled_transformers
         ]
+
+        # print(f"Measurements are:")
+        # print(f"{u_meas=}")
+        # print(f"{NLI_meas=}")
+        # print(f"{VT_meas=}")
+        # print(f"{VD_meas=}")
 
         return u_meas, NLI_meas, VT_meas, VD_meas
 
@@ -1169,7 +1215,6 @@ class MPC_controller(Controller):
         print(f"dP = {dP}")
         print(f"dQ = {dQ}")
         print(f"slacks = {slacks}\n")
-        return dists
 
         # Store solutions from this iteration. The elements of these lists are
         # themselves 1D np.ndarrays.
@@ -1200,243 +1245,318 @@ class MPC_controller(Controller):
             if dist is not None:
                 # The method try_to_move_OLTC returns a list of disturbances
                 dists += dist
+        
+        # return dists
+
+        # Send signals to the substations. The following creates a dictionary
+        # that maps the transformer name to the power increment request.
+        dP_requests = dict(zip(self.controlled_transformers, dP))
+        dQ_requests = dict(zip(self.controlled_transformers, dQ))
+
+        # We then go transformer by transformer,
+        for t in self.controlled_transformers:
+            # Find the next coordinator
+            coordinator = next(
+                (
+                    c
+                    for c in self.sys.controllers
+                    if c.type == "Coordinator" and c.transformer_name == t
+                ),
+                None,
+            )
+            # If we found one, we increment the request
+            if coordinator is not None:
+                coordinator.increment_request(
+                    delta_P_load_pu=dP_requests[t],
+                    delta_Q_load_pu=dQ_requests[t],
+                )
+
+        # Print some progress
+        u_meas, NLI_meas, VT_meas, VD_meas = self.get_measurements()
+        print("\n\nMeasurements by MPC: u", u_meas.T, "\n")
+        print("Measurements by MPC: NLI", NLI_meas.T, "\n")
+        print("Measurements by MPC: VT", VT_meas.T, "\n")
+        print("Measurements by MPC: VD", VD_meas.T, "\n")
+        print("Disturbances required by MPC", [str(d) for d in dists], "\n")
+
+        return dists
 
 
-#         # Send signals to the substations
-#         dP_requests = dict(zip(self.controlled_transformers, dP))
-#         dQ_requests = dict(zip(self.controlled_transformers, dQ))
-#         for t in self.controlled_transformers:
-#             coordinator = next(
-#                 (
-#                     c
-#                     for c in self.sys.controllers
-#                     if c.type == "Coordinator" and c.transformer_name == t
-#                 ),
-#                 None,
-#             )
-#             if coordinator is not None:
-#                 coordinator.increment_request(
-#                     delta_P_load_pu=dP_requests[t],
-#                     delta_Q_load_pu=dQ_requests[t],
-#                 )
+class Coordinator(Controller):
+    """
+    Coordinator installed at each step-down substation.
+    """
 
-#         # There is no need to send those changes to the twin because it is
-#         # updated:
-#         self.update_twin()
+    type = "Coordinator"
 
-#         #
-#         u_meas, NLI_meas, VT_meas, VD_meas = self.get_measurements()
-#         print("\n\nMeasurements by MPC: u", u_meas.T, "\n")
-#         print("Measurements by MPC: NLI", NLI_meas.T, "\n")
-#         print("Measurements by MPC: VT", VT_meas.T, "\n")
-#         print("Measurements by MPC: VD", VD_meas.T, "\n")
-#         print("Disturbances required by MPC", [str(d) for d in dists], "\n")
+    # We define the boundaries of the sigma constellation as a class attribute
+    # because we need to make sure that all coordinators speak the same
+    # language, and hence all instances must have the same value.
+    sigma_P_min: float = -5
+    sigma_P_max: float = 5
+    sigma_Q_min: float = -5
+    sigma_Q_max: float = 5
 
-#         return dists
+    def __init__(
+        self,
+        transformer_name: str,
+        min_P_injection_MVA: float,
+        max_P_injection_MVA: float,
+        min_Q_injection_MVA: float,
+        max_Q_injection_MVA: float,
+    ) -> None:
+        
+        # Like any controller, this coordinator acts on a system.
+        self.sys = None
+
+        # Any coordinator is associated to exactly one transformer.
+        self.transformer_name = transformer_name
+
+        # The following attribute represents all that is known by the
+        # coordinator: that what values should be associated to the 
+        # maximum (resp. minimum) signal values.
+        self.min_P_injection_MVA = min_P_injection_MVA
+        self.max_P_injection_MVA = max_P_injection_MVA
+        self.min_Q_injection_MVA = min_Q_injection_MVA
+        self.max_Q_injection_MVA = max_Q_injection_MVA
+
+        # The MPC will send requests of changes in active and reactive power.
+        # To keep track of the actual injection, we keep in each coordinador a
+        # state that is then incremented.
+        self.requested_P_injection_MVA: float = 0
+        self.requested_Q_injection_MVA: float = 0
+
+        # As in the paper for Transactions on Sustainable Energy, the period is
+        # arbitrarily set to 1.
+        self.period: float = 1
+        # All controllers also require the following attribute.
+        self.t_last_action: float = 0
+
+        # The injectors downstream of this transformer are saved in a list.
+        self.available_injectors: list[records.Injector] = None
+
+        # The power signals are stored in the format (sigma_P, sigma_Q).
+        self.sigma: list[tuple[int, int]] = []
+
+    def increment_request(self, 
+                          delta_P_load_pu: float, 
+                          delta_Q_load_pu: float) -> None:
+        """
+        This method is the one used by the MPC.
+        """
+
+        # Decrement because the MPC thinks the deltas refer to loads
+        self.requested_P_injection_MVA -= delta_P_load_pu * self.sys.base_MVA
+        self.requested_Q_injection_MVA -= delta_Q_load_pu * self.sys.base_MVA
+
+    def get_actions(self) -> list[sim_interaction.Disturbance]:
+        """
+        Get the actions from this controller. This is the method common to all
+        controllers.
+        """
+
+        delay: float = 10e-3
+        tk: float = self.sys.get_t_now() + delay
+
+        # Get signal
+        sigma: dict[str, int] = self.get_sigma()
+
+        # Store values of sigma for later result processing
+        self.sigma.append((sigma["P"], sigma["Q"]))
+
+        # Get available injectors
+        injectors: list[records.DERA] = self.get_available_injectors()
+
+        # Apply appropriate controller
+        dists = []
+        for inj in injectors:
+            # Find a controller of type DERA (DERA in INJEC DERA evaluates to
+            # True)
+            controller = next(
+                (
+                    c
+                    for c in self.sys.controllers
+                    if c.type is not None and c.type in inj.prefix
+                ),
+                None,
+            )
+            # If a DERA controller was found, get the actions
+            if controller is not None:
+                print(f"Sending {sigma} to element {inj.name}")
+                dists += controller.get_actions(tk=tk, element=inj, sigma=sigma)
+
+        return dists
+
+    @staticmethod
+    def interpolate(
+        requested_power: float, 
+        power_min: float, 
+        power_max: float, 
+        sigma_min: int, 
+        sigma_max: int,
+        ) -> int:
+        """
+        Map a requested power to a sigma value.
+
+        We always round down, i.e. apply a ceiling to negative values, and a floor
+        for positive values.
+        """
+        
+        if requested_power < power_min:
+            return sigma_min
+
+        elif power_min <= requested_power < 0:
+            frac = requested_power / power_min
+            return math.ceil(frac * sigma_min)
+
+        elif 0 <= requested_power <= power_max:
+            frac = requested_power / power_max
+            return math.floor(frac * sigma_max)
+
+        elif power_max < requested_power:
+            return sigma_max
+
+    def get_sigma(self) -> dict[str, int]:
+        """
+        Get sigma based on the requested powers.
+        """
+
+        # Interpolate the signal for active power
+        sigma_P = self.interpolate(
+            requested_power=self.requested_P_injection_MVA,
+            power_min=self.min_P_injection_MVA,
+            power_max=self.max_P_injection_MVA,
+            sigma_min=self.sigma_P_min,
+            sigma_max=self.sigma_P_max,
+        )
+
+        # Interpolate the signal for reactive power
+        sigma_Q = self.interpolate(
+            requested_power=self.requested_Q_injection_MVA,
+            power_min=self.min_Q_injection_MVA,
+            power_max=self.max_Q_injection_MVA,
+            sigma_min=self.sigma_Q_min,
+            sigma_max=self.sigma_Q_max,
+        )
+
+        # Finally, pack this bit of information into a dictionary before
+        # sending it. The metainformation (boundary values) are needed for the
+        # receiver to understand the relative magnitude of the signal.
+        return {
+            "P": sigma_P,
+            "Q": sigma_Q,
+            "min_P": self.sigma_P_min,
+            "max_P": self.sigma_P_max,
+            "min_Q": self.sigma_Q_min,
+            "max_Q": self.sigma_Q_max,
+        }
+
+    def get_available_injectors(self) -> list[records.Injector]:
+        """
+        Get the injectors downstream of this coordinator.
+
+        For the moment, this method only returns DERAs, although in the future
+        it could consider other types of injectors.
+        """
+
+        # Maybe initialize available injectors
+        if self.available_injectors is None:
+            # Get the transformer this coordinator is acting on
+            t = self.sys.get_transformer(name=self.transformer_name)
+            # Get the buses downstream
+            buses = self.sys.isolate_buses_by_kV(starting_bus=t.get_LV_bus())
+            # Get the injectors
+            self.available_injectors = [
+                inj 
+                for inj in self.sys.injectors 
+                if inj.bus in buses
+                and
+                isinstance(inj, records.DERA)
+            ]
+
+        return self.available_injectors
+
+    def __str__(self) -> str:
+        """
+        Print information about this controller.
+        """
+
+        data = [
+            ("Coordinator at:", self.transformer_name),
+            ("Min. injection P", self.min_P_injection_MVA),
+            ("Max. injection P", self.max_P_injection_MVA),
+            ("Min. injection Q", self.min_Q_injection_MVA),
+            ("Max. injection Q", self.max_Q_injection_MVA),
+        ]
+
+        return tabulate.tabulate(data)
 
 
-# class Coordinator(Controller):
-#     """
-#     Coordinator installed at each step-down substation.
-#     """
+class DERA_Controller(Controller):
+    """
+    Local controller of each DERA.
 
-#     type = "Coordinator"
-#     sigma_P_min = -5
-#     sigma_P_max = 5
-#     sigma_Q_min = -5
-#     sigma_Q_max = 5
+    This controller will never send disturbances to the system, but rather it
+    will be called indirectly by the coordinator. Since direct actions are
+    timed by the period, we set this parameter to be infinite.
+    """
 
-#     def __init__(
-#         self,
-#         transformer_name,
-#         min_P_injection_MVA,
-#         max_P_injection_MVA,
-#         min_Q_injection_MVA,
-#         max_Q_injection_MVA,
-#     ):
-#         self.sys = None
-#         self.transformer_name = transformer_name
-#         self.min_P_injection_MVA = min_P_injection_MVA
-#         self.max_P_injection_MVA = max_P_injection_MVA
-#         self.min_Q_injection_MVA = min_Q_injection_MVA
-#         self.max_Q_injection_MVA = max_Q_injection_MVA
-#         self.requested_P_injection_MVA = 0
-#         self.requested_Q_injection_MVA = 0
-#         self.period = 1
-#         self.t_last_action = 0
-#         self.available_injectors = None
-#         self.sigma = []
+    type = "DERA"
+    period = np.inf
+    t_last_action = 0
+    sys = None
 
-#     def __str__(self):
-#         inj_names = [inj.name for inj in self.available_injectors]
+    @staticmethod
+    def get_ref(sigma: int, sigma_min: int, sigma_max: int, power_0: float, SN: float) -> float:
+        """
+        Map sigma (either from the P or Q channel) to a power reference for the
+        DERA (either P or Q).
 
-#         controller_types = [c.type for c in self.sys.controllers]
+        When sigma = sigma_min (resp. sigma_max), the corresponding reference
+        will be mapped to -1 (resp. +1) in the DERA's base. When sigma = 0,
+        the reference is the power right now.
+        """
 
-#         controllable_inj = []
-#         for inj in self.available_injectors:
-#             prefix = inj.prefix.split(" ")
-#             if len(prefix) == 2 and prefix[1] in controller_types:
-#                 controllable_inj.append(inj.name)
+        if sigma < 0:
+            frac = sigma / abs(sigma_min)
+        else:
+            frac = sigma / abs(sigma_max)
 
-#         data = [
-#             ["Substation", self.transformer_name],
-#             ["Injectors downstream", inj_names],
-#             ["Controllable injectors", controllable_inj],
-#             ["Period (s)", self.period],
-#             ["Minimum P injection (MW)", self.min_P_injection_MVA],
-#             ["Max. P injection (MW)", self.max_P_injection_MVA],
-#             ["Min. Q injection (Mvar)", self.min_Q_injection_MVA],
-#             ["Max. A injection (Mvar)", self.max_Q_injection_MVA],
-#             ["Min. P signal", self.sigma_P_min],
-#             ["Max. P signal", self.sigma_P_max],
-#             ["Min. Q signal", self.sigma_Q_min],
-#             ["Max. Q signal", self.sigma_Q_max],
-#             ["Signal when OK", 0],
-#         ]
+        return power_0 / SN + frac * (1 - power_0 / SN * np.sign(sigma))
 
-#         table = tabulate.tabulate(data)
+    def get_actions(self, tk: float, element: records.DERA, sigma: dict[str, int]) -> list[sim_interaction.Disturbance]:
+        """
+        Change Pref and Qref according to values of sigma.
 
-#         return table
+        In this method, sigma is a dictionary that contains all the information
+        to parse the signal.
+        """
 
-#     def increment_request(self, delta_P_load_pu, delta_Q_load_pu):
-#         """
-#         This method is the one used by the MPC.
-#         """
+        # We first fetch this element's initial power, as well as its capacity.
+        P0 = element.P0_MW
+        Q0 = element.Q0_Mvar
+        SN = element.Snom_MVA
 
-#         # print(f'The MPC sent dP = {delta_P_load_pu} pu and dQ = {delta_Q_load_pu} pu')
-#         # Decrement because the MPC thinks the deltas refer to loads
-#         self.requested_P_injection_MVA -= delta_P_load_pu * self.sys.Sb
-#         self.requested_Q_injection_MVA -= delta_Q_load_pu * self.sys.Sb
+        # We then get the reference for each channel
+        Pref = self.get_ref(sigma=sigma["P"],
+                            sigma_min=sigma["min_P"],
+                            sigma_max=sigma["max_P"], 
+                            power_0=P0,
+                            SN=SN)
+        Qref = self.get_ref(sigma=sigma["Q"], 
+                            sigma_min=sigma["min_Q"],
+                            sigma_max=sigma["max_Q"],
+                            power_0=Q0,
+                            SN=SN)
+        
+        print(f"Translating {sigma} to references {Pref} and {Qref}")
 
-#     def get_actions(self):
-#         delay = 10e-3
-#         tk = self.sys.get_t_now() + delay
-
-#         # Get signal
-#         sigma = self.get_sigma()
-
-#         # Store values of sigma
-#         self.sigma.append((sigma["P"], sigma["Q"]))
-#         print(" Sending sigma =", (sigma["P"], sigma["Q"]))
-
-#         # print(f'Coordinator at substation {self.transformer_name} is sending {sigma} to its DERs')
-#         # print(f'MPC is requesting P = {self.requested_P_injection_MVA} MW and Q = {self.requested_Q_injection_MVA} Mvar from this coordinator')
-#         # Get available injectors
-#         injectors = self.get_available_injectors()
-
-#         # Apply appropriate controller
-#         dists = []
-#         for inj in injectors:
-#             controller = next(
-#                 (
-#                     c
-#                     for c in self.sys.controllers
-#                     if c.type is not None and c.type in inj.prefix
-#                 ),
-#                 None,
-#             )
-#             if controller is not None:
-#                 dists += controller.get_actions(tk, inj, sigma)
-
-#         return dists
-
-#     @staticmethod
-#     def interpolate(
-#         requested_power, power_min, power_max, sigma_min, sigma_max
-#     ):
-#         if requested_power < power_min:
-#             return sigma_min
-#         elif power_min <= requested_power < 0:
-#             frac = requested_power / power_min
-#             return math.ceil(frac * sigma_min)
-#         elif 0 <= requested_power <= power_max:
-#             frac = requested_power / power_max
-#             return math.floor(frac * sigma_max)
-#         elif power_max < requested_power:
-#             return sigma_max
-
-#     def get_sigma(self):
-#         """
-#         Get sigma based on the requested powers.
-#         """
-
-#         sigma_P = self.interpolate(
-#             self.requested_P_injection_MVA,
-#             self.min_P_injection_MVA,
-#             self.max_P_injection_MVA,
-#             self.sigma_P_min,
-#             self.sigma_P_max,
-#         )
-
-#         sigma_Q = self.interpolate(
-#             self.requested_Q_injection_MVA,
-#             self.min_Q_injection_MVA,
-#             self.max_Q_injection_MVA,
-#             self.sigma_Q_min,
-#             self.sigma_Q_max,
-#         )
-
-#         return {
-#             "P": sigma_P,
-#             "Q": sigma_Q,
-#             "min_P": self.sigma_P_min,
-#             "max_P": self.sigma_P_max,
-#             "min_Q": self.sigma_Q_min,
-#             "max_Q": self.sigma_Q_max,
-#         }
-
-#     def get_available_injectors(self):
-#         # Maybe initialize available injectors
-#         if self.available_injectors is None:
-#             t = self.sys.get_transformer(self.transformer_name)
-#             buses = self.sys.isolate_buses_by_kV(starting_bus=t.get_LV_bus())
-#             self.available_injectors = [
-#                 inj for inj in self.sys.injectors if inj.bus in buses
-#             ]
-
-#         return self.available_injectors
-
-
-# class DERA_Controller(Controller):
-#     """
-#     Local controller of each DERA.
-#     """
-
-#     type = "DER_A"
-#     period = np.inf
-#     t_last_action = 0
-#     sys = None
-
-#     @staticmethod
-#     def get_ref(sigma, sigma_min, sigma_max, power_0, SN):
-#         """
-#         Map sigma (either P or Q) to reference (either P or Q).
-#         """
-
-#         if sigma < 0:
-#             frac = sigma / abs(sigma_min)
-#         else:
-#             frac = sigma / abs(sigma_max)
-
-#         return power_0 / SN + frac * (1 - power_0 / SN * np.sign(sigma))
-
-#     def get_actions(self, tk, element, sigma):
-#         """
-#         Change Pref and Qref according to values of sigma.
-#         """
-
-#         P0 = element.P0
-#         Q0 = element.Q0
-#         SN = element.SNOM
-
-#         Pref = self.get_ref(sigma["P"], sigma["min_P"], sigma["max_P"], P0, SN)
-#         Qref = self.get_ref(sigma["Q"], sigma["min_Q"], sigma["max_P"], Q0, SN)
-
-#         return [
-#             sim_interaction.Disturbance(
-#                 tk, element, par_name="Pref", par_value=Pref
-#             ),
-#             sim_interaction.Disturbance(
-#                 tk, element, par_name="Qref", par_value=Qref
-#             ),
-#         ]
+        # Finally, we send the references.
+        return [
+            sim_interaction.Disturbance(
+                tk, element, par_name="Pref", par_value=Pref
+            ),
+            sim_interaction.Disturbance(
+                tk, element, par_name="Qref", par_value=Qref
+            ),
+        ]
