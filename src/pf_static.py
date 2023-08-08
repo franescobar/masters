@@ -1478,6 +1478,7 @@ class StaticSystem:
                     line.name,
                     line.from_bus.name,
                     line.to_bus.name,
+                    "Yes" if line.in_operation else "No",
                     line.R_pu,
                     line.X_pu,
                     line.from_Y_pu.imag,
@@ -1498,6 +1499,7 @@ class StaticSystem:
                 "\nName",
                 "\nFrom bus",
                 "\nTo bus",
+                "\nOnline?",
                 "\nR (pu)",
                 "\nX (pu)",
                 "B from\n(pu)",
@@ -1512,6 +1514,7 @@ class StaticSystem:
 
             # Build line table
             line_precision = (
+                0,
                 0,
                 0,
                 0,
