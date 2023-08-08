@@ -427,7 +427,7 @@ class MPC_controller(Controller):
             )
 
             def multiply(x: np.ndarray, N: int) -> np.ndarray:
-                return np.array([[k] 
+                return np.array([[k]
                                  for i in zip(*(N*(x[:, 0],)))
                                  for k in i
                                  ])
@@ -588,6 +588,9 @@ class MPC_controller(Controller):
         slacks_fun=lambda bus, Np, iter: MPC_controller.some_slack_penalization(
             bus=bus, Np=Np, iter=iter
         ),
+        NLI_slacks_fun=lambda bus, Np, iter: MPC_controller.some_slack_penalization(
+            bus=bus, Np=Np, iter=iter
+        ),
     ) -> None:
         """
         Define weight matrices to be used in the cost function.
@@ -735,9 +738,23 @@ class MPC_controller(Controller):
             ]
         )
 
+        NLI_pen = np.array(
+            [
+                [
+                    NLI_slacks_fun(
+                        bus=self.sys.get_bus(name=observed_corridor[0]),
+                        Np=self.Np,
+                        iter=self.current_iter
+                    )[i]
+                ]
+                for i in range(2)
+                for observed_corridor in self.observed_corridors
+            ]
+        )
+
         # Notice that for the slack variables, we don't consider variation
         # across the control horizon.
-        factors = np.vstack([VT_pen, VD_pen])
+        factors = np.vstack([VT_pen, VD_pen, NLI_pen])
         # For the following hack, see above in this same method.
         self.S = np.diag(factors.T[0])
 
@@ -801,17 +818,26 @@ class MPC_controller(Controller):
 
         # Build A matrices
         I = np.eye(self.T)
+        IB = np.eye(self.B)
+        zero_pad_voltages = np.zeros([self.T, 2 * self.B])
+        zero_pad_NLIs = np.zeros([self.B, 4 * self.T])
+        self.A01 = np.vstack(
+            [np.hstack([zero_pad_NLIs, IB, 0 * IB]) for i in range(self.Np)]
+        )
+        self.A02 = np.vstack(
+            [np.hstack([zero_pad_NLIs, 0 * IB, IB]) for i in range(self.Np)]
+        )
         self.A1 = np.vstack(
-            [np.hstack([I, 0 * I, 0 * I, 0 * I]) for i in range(self.Np)]
+            [np.hstack([I, 0 * I, 0 * I, 0 * I, zero_pad_voltages]) for i in range(self.Np)]
         )
         self.A2 = np.vstack(
-            [np.hstack([0 * I, I, 0 * I, 0 * I]) for i in range(self.Np)]
+            [np.hstack([0 * I, I, 0 * I, 0 * I, zero_pad_voltages]) for i in range(self.Np)]
         )
         self.A3 = np.vstack(
-            [np.hstack([0 * I, 0 * I, I, 0 * I]) for i in range(self.Np)]
+            [np.hstack([0 * I, 0 * I, I, 0 * I, zero_pad_voltages]) for i in range(self.Np)]
         )
         self.A4 = np.vstack(
-            [np.hstack([0 * I, 0 * I, 0 * I, I]) for i in range(self.Np)]
+            [np.hstack([0 * I, 0 * I, 0 * I, I, zero_pad_voltages]) for i in range(self.Np)]
         )
 
     def generate_twin(
@@ -862,7 +888,7 @@ class MPC_controller(Controller):
 
         # input(f"Creating derivatives. Press enter to see the system.")
         sys.run_pf(flat_start=False)
-        print(sys.generate_table())
+        # print(sys.generate_table())
         # input(f"Press enter to continue...")
 
         # Iterate over all substations
@@ -887,9 +913,12 @@ class MPC_controller(Controller):
                     sys.get_min_NLI(
                         corridor=corridor,
                         transformer_names=self.controlled_transformers,
+                        perturb_powers=True,
                     )
                     for corridor in self.observed_corridors
                 ]
+                if attr == "QL":
+                    print(f"NLI before: {np.round(NLIs_0, 8)}")
 
                 # Change the right parameter at the right transformer.
                 # Because PL and QL are treated as per-unit values by the whole
@@ -903,7 +932,7 @@ class MPC_controller(Controller):
                 elif attr == "PL":
                     sys.get_transformer(trafo).get_LV_bus().PL_pu += dP
                 elif attr == "QL":
-                    sys.get_transformer(trafo).get_LV_bus().QL_pu += dQ
+                    sys.get_transformer(trafo).get_LV_bus().QL_pu += 0 * dQ
 
                 # Run second power flow
                 sys.run_pf(flat_start=False)
@@ -927,9 +956,12 @@ class MPC_controller(Controller):
                     sys.get_min_NLI(
                         corridor=corridor,
                         transformer_names=self.controlled_transformers,
+                        perturb_powers=True,
                     )
                     for corridor in self.observed_corridors
                 ]
+                if attr == "QL":
+                    print(f"NLI after : {np.round(NLIs_1, 8)}")
 
                 # Undo changes (to avoid doing multiple deep copies)
                 if attr == "n":
@@ -937,7 +969,7 @@ class MPC_controller(Controller):
                 elif attr == "PL":
                     sys.get_transformer(name=trafo).get_LV_bus().PL_pu -= dP
                 elif attr == "QL":
-                    sys.get_transformer(name=trafo).get_LV_bus().QL_pu -= dQ
+                    sys.get_transformer(name=trafo).get_LV_bus().QL_pu -= 0 * dQ
 
                 # Select delta
                 if attr == "n":
@@ -1067,8 +1099,8 @@ class MPC_controller(Controller):
             detector = next(
                 detector
                 for detector in self.sys.detectors
-                if detector.type == "NLI" 
-                and 
+                if detector.type == "NLI"
+                and
                 detector.observed_corridor == corridor
                 # if detector.corridor == corridor and detector.type == "NLI"
             )
@@ -1120,7 +1152,7 @@ class MPC_controller(Controller):
 
         # Build P matrix (quadratic part of the cost function)
         P00 = self.R1 + self.C2.T @ self.R2 @ self.C2
-        P01 = np.zeros([self.Nc * 3 * self.T, 4 * self.T])
+        P01 = np.zeros([self.Nc * 3 * self.T, 4 * self.T + 2 * self.B])
         P10 = P01.T
         P11 = self.S
 
@@ -1130,22 +1162,22 @@ class MPC_controller(Controller):
 
         # Build q matrix (linear part of the cost function)
         q00 = self.C2.T @ self.R2 @ (self.C1 @ u_meas - self.u_star)
-        q10 = np.zeros([4 * self.T, 1])
+        q10 = np.zeros([4 * self.T + 2 * self.B, 1])
 
         self.q_matrix = np.vstack([q00, q10])
 
         # Build G matrix (LHS of constraints)
         I_Nc3T = np.eye(self.Nc * 3 * self.T)
-        zero_Nc3T = np.zeros([self.Nc * 3 * self.T, 4 * self.T])
-        zero_NpB = np.zeros([self.Np * self.B, 4 * self.T])
+        zero_Nc3T = np.zeros([self.Nc * 3 * self.T, 4 * self.T + 2 * self.B])
+        zero_NpB = np.zeros([self.Np * self.B, 4 * self.T + 2 * self.B])
         self.G_matrix = np.vstack(
             [
                 np.hstack([I_Nc3T, zero_Nc3T]),
                 np.hstack([-I_Nc3T, zero_Nc3T]),
                 np.hstack([self.C2, zero_Nc3T]),
                 np.hstack([-self.C2, zero_Nc3T]),
-                np.hstack([self.D_u_N, zero_NpB]),
-                np.hstack([-self.D_u_N, zero_NpB]),
+                np.hstack([self.D_u_N, -self.A02]),
+                np.hstack([-self.D_u_N, -self.A01]),
                 np.hstack([self.D_u_VT, -self.A2]),
                 np.hstack([-self.D_u_VT, -self.A1]),
                 np.hstack([self.D_u_VD, -self.A4]),
@@ -1245,7 +1277,7 @@ class MPC_controller(Controller):
             if dist is not None:
                 # The method try_to_move_OLTC returns a list of disturbances
                 dists += dist
-        
+
         # return dists
 
         # Send signals to the substations. The following creates a dictionary
@@ -1305,7 +1337,7 @@ class Coordinator(Controller):
         min_Q_injection_MVA: float,
         max_Q_injection_MVA: float,
     ) -> None:
-        
+
         # Like any controller, this coordinator acts on a system.
         self.sys = None
 
@@ -1313,7 +1345,7 @@ class Coordinator(Controller):
         self.transformer_name = transformer_name
 
         # The following attribute represents all that is known by the
-        # coordinator: that what values should be associated to the 
+        # coordinator: that what values should be associated to the
         # maximum (resp. minimum) signal values.
         self.min_P_injection_MVA = min_P_injection_MVA
         self.max_P_injection_MVA = max_P_injection_MVA
@@ -1338,8 +1370,8 @@ class Coordinator(Controller):
         # The power signals are stored in the format (sigma_P, sigma_Q).
         self.sigma: list[tuple[int, int]] = []
 
-    def increment_request(self, 
-                          delta_P_load_pu: float, 
+    def increment_request(self,
+                          delta_P_load_pu: float,
                           delta_Q_load_pu: float) -> None:
         """
         This method is the one used by the MPC.
@@ -1389,10 +1421,10 @@ class Coordinator(Controller):
 
     @staticmethod
     def interpolate(
-        requested_power: float, 
-        power_min: float, 
-        power_max: float, 
-        sigma_min: int, 
+        requested_power: float,
+        power_min: float,
+        power_max: float,
+        sigma_min: int,
         sigma_max: int,
         ) -> int:
         """
@@ -1401,7 +1433,7 @@ class Coordinator(Controller):
         We always round down, i.e. apply a ceiling to negative values, and a floor
         for positive values.
         """
-        
+
         if requested_power < power_min:
             return sigma_min
 
@@ -1467,8 +1499,8 @@ class Coordinator(Controller):
             buses = self.sys.isolate_buses_by_kV(starting_bus=t.get_LV_bus())
             # Get the injectors
             self.available_injectors = [
-                inj 
-                for inj in self.sys.injectors 
+                inj
+                for inj in self.sys.injectors
                 if inj.bus in buses
                 and
                 isinstance(inj, records.DERA)
@@ -1540,15 +1572,15 @@ class DERA_Controller(Controller):
         # We then get the reference for each channel
         Pref = self.get_ref(sigma=sigma["P"],
                             sigma_min=sigma["min_P"],
-                            sigma_max=sigma["max_P"], 
+                            sigma_max=sigma["max_P"],
                             power_0=P0,
                             SN=SN)
-        Qref = self.get_ref(sigma=sigma["Q"], 
+        Qref = self.get_ref(sigma=sigma["Q"],
                             sigma_min=sigma["min_Q"],
                             sigma_max=sigma["max_Q"],
                             power_0=Q0,
                             SN=SN)
-        
+
         print(f"Translating {sigma} to references {Pref} and {Qref}")
 
         # Finally, we send the references.
