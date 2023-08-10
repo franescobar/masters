@@ -103,6 +103,9 @@ def get_dynamic_Nordic() -> pf.System:
         )
     )
 
+    # We now create the twin before adding any DERAs
+    nordic.generate_twin()
+
     # Finally, we return the system.
     return nordic
 
@@ -472,6 +475,14 @@ def get_disaggregated_nordic(
             total_P_DERA_MW += P_DERA_MW
         print(f"Original load at bus {bus.name} is {original_loads[bus.name]:.4f} MW.")
         print(f"Total DERA power at bus {bus.name} is {total_P_DERA_MW:.4f} MW.")
+
+    raise NotImplementedError(
+        "Make sure that the secondary voltages are marked"
+        " as having location = CENTRAL"
+        " otherwise the visualizations will fail"
+        " then test with a small horizon"
+        " Ideally, change the name of the secondary to detect those buses: keep 1, 2, 5, etc"
+    )
 
     # Check one final time that the power flow is correct
     check_nordic_power_flow(nordic=nordic)

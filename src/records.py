@@ -977,6 +977,9 @@ class Branch(Record):
         Get (P_from, Q_from, P_to, Q_to) in MW and Mvar, entering the branch.
         """
 
+        if not self.in_operation:
+            return 5*(0,)
+
         V_from = self.from_bus.get_phasor_V()
         V_to = self.to_bus.get_phasor_V()
 

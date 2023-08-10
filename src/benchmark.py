@@ -69,6 +69,7 @@ class PabonController(control.Controller):
         # following attribute as an empty list, and then update it in the
         # update_controlled_DERAs method.
         self.controlled_DERAs: list[records.DERA] = []
+        self.DERA_powers: dict[records.DERA, float] = {}
 
     def update_transformer(self) -> None:
 
@@ -103,6 +104,9 @@ class PabonController(control.Controller):
             for injector in self.sys.bus_to_injectors[bus]:
                 if isinstance(injector, records.DERA):
                     self.controlled_DERAs.append(injector)
+                    self.DERA_powers[injector] = (
+                        injector.get_Q()/injector.Snom_MVA
+                    )
 
     def get_measured_voltages(self) -> tuple[float, float]:
         """
@@ -214,7 +218,7 @@ class PabonController(control.Controller):
         # bit is figuring out the ocurrence time. I'll put 0.02 seconds, which
         # is larger than the larger allowed time step in RAMSES (0.01 s) and
         # 50 times smaller than the controller's period (1 s).
-        ocurrence_time = self.sys.get_t_now() + 0.02 + 0.1
+        ocurrence_time = self.sys.get_t_now() + 10e-3
         # We also need to figure out the duration of the disturbance. One
         # reasonable value will be self.period - 2 * 0.02 s = self.period - 0.04 s.
         # The first 0.02 s are there to cover the ocurrence time, and the second
@@ -227,15 +231,15 @@ class PabonController(control.Controller):
         increment = self.increase_rate_pu_per_s * self.period
 
         for DERA in self.controlled_DERAs:
+            # Increment the power reference
+            if self.DERA_powers[DERA] + increment <= 1:
+                self.DERA_powers[DERA] += round(increment, 2)
+            # Send the new reference
             dist = sim_interaction.Disturbance(
                 ocurrence_time=ocurrence_time,
                 object_acted_on=DERA,
                 par_name="Qref",
-                par_value=increment,
-                duration=duration,
-                # The units are set as "" so that the disturbance is interpreted
-                # as an increment, not a setpoint value.
-                units="",
+                par_value=self.DERA_powers[DERA],
             )
 
             dists.append(dist)
@@ -323,9 +327,6 @@ class PabonController(control.Controller):
         # We first identify the transformer in the new system.
         self.update_transformer()
 
-        # print(f"\nController at {self.transformer.name} telling the OLTC to freeze.\n")
-        # return self.freeze_r()
-
         # We then identify the DERAs that must be acted upon, in case they
         # have not been identified.
         if self.controlled_DERAs == []:
@@ -346,7 +347,8 @@ class PabonController(control.Controller):
         # must be sent. This depends on the region.
         region_number = self.get_region_number()
 
-        print(f"\nController at {self.transformer.name} is in region {region_number}.")
+        print(f"Controller at {self.transformer.name} is in region {region_number}.")
+        # print(f"Voltages are {self.get_measured_voltages()}")
 
         # Once the region number is known, the control boils down to sending
         # the right disturbances:
@@ -372,6 +374,8 @@ class PabonController(control.Controller):
 
         else:
             raise ValueError("Invalid region number.")
+
+        print(f"Pabon controller is sending: {dists}")
 
         # Finally, simply return the list of disturbances.
         return dists

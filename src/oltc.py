@@ -207,13 +207,13 @@ class OLTC_controller(control.Controller, records.DCTL):
         # If the tap ratio has increased beyond one integer step, we apply it
         # and return the corresponding disturbances. Recall that an increase in
         # the tap ratio is a decrease in the voltage.
-        if self.cumulative_dr > self.OLTC.step:
-            self.cumulative_dr -= self.OLTC.step
+        if self.cumulative_dr > self.OLTC.step_pu:
+            self.cumulative_dr -= self.OLTC.step_pu
             return self.reduce_voltages(t_now + dt)
 
         # Handle opposite case:
-        elif self.cumulative_dr < -self.OLTC.step:
-            self.cumulative_dr += self.OLTC.step
+        elif self.cumulative_dr < -self.OLTC.step_pu:
+            self.cumulative_dr += self.OLTC.step_pu
             return self.increase_voltages(t_now + dt)
 
     def measure_v(self) -> float:

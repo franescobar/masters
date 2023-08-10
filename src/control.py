@@ -261,7 +261,7 @@ class MPC_controller(Controller):
             bus=bus, Np=Np, iter=iter, half_db_pu=0.1
         ),
         VD_fun=lambda bus, Np, iter: MPC_controller.v_bound(
-            bus=bus, Np=Np, iter=iter, half_db_pu=0.5
+            bus=bus, Np=Np, iter=iter, half_db_pu=0.025
         ),
         # Return a tuple of arrays (min, max, min_delta, max_delta)
         P_fun=lambda bus, Nc, iter: MPC_controller.power_bound(
@@ -561,6 +561,23 @@ class MPC_controller(Controller):
 
         return 1.0, 1.0
 
+    @staticmethod
+    def some_NLI_slack_penalization(
+        bus: records.Bus, Np: int, iter: int
+    ) -> tuple[float]:
+        """
+        Return a tuple of penalizations for the slacks.
+
+        The first element of the tuple penalizes the lower-bound violations,
+        the second one penalizes the upper-bound violations.
+
+        For simplicity, the penalization factors are kept constant across the
+        horizon. Hence, the method returns a tuple of floats, not a tuple of
+        arrays.
+        """
+
+        return 10.0, 10.0
+
     def set_weights(
         self,
         dr_fun=lambda transformer, Nc, iter: 0.0
@@ -588,7 +605,7 @@ class MPC_controller(Controller):
         slacks_fun=lambda bus, Np, iter: MPC_controller.some_slack_penalization(
             bus=bus, Np=Np, iter=iter
         ),
-        NLI_slacks_fun=lambda bus, Np, iter: MPC_controller.some_slack_penalization(
+        NLI_slacks_fun=lambda bus, Np, iter: MPC_controller.some_NLI_slack_penalization(
             bus=bus, Np=Np, iter=iter
         ),
     ) -> None:
@@ -913,12 +930,10 @@ class MPC_controller(Controller):
                     sys.get_min_NLI(
                         corridor=corridor,
                         transformer_names=self.controlled_transformers,
-                        perturb_powers=True,
+                        # perturb_powers=True,
                     )
                     for corridor in self.observed_corridors
                 ]
-                if attr == "QL":
-                    print(f"NLI before: {np.round(NLIs_0, 8)}")
 
                 # Change the right parameter at the right transformer.
                 # Because PL and QL are treated as per-unit values by the whole
@@ -932,7 +947,7 @@ class MPC_controller(Controller):
                 elif attr == "PL":
                     sys.get_transformer(trafo).get_LV_bus().PL_pu += dP
                 elif attr == "QL":
-                    sys.get_transformer(trafo).get_LV_bus().QL_pu += 0 * dQ
+                    sys.get_transformer(trafo).get_LV_bus().QL_pu += dQ
 
                 # Run second power flow
                 sys.run_pf(flat_start=False)
@@ -956,12 +971,10 @@ class MPC_controller(Controller):
                     sys.get_min_NLI(
                         corridor=corridor,
                         transformer_names=self.controlled_transformers,
-                        perturb_powers=True,
+                        # perturb_powers=True,
                     )
                     for corridor in self.observed_corridors
                 ]
-                if attr == "QL":
-                    print(f"NLI after : {np.round(NLIs_1, 8)}")
 
                 # Undo changes (to avoid doing multiple deep copies)
                 if attr == "n":
@@ -969,7 +982,7 @@ class MPC_controller(Controller):
                 elif attr == "PL":
                     sys.get_transformer(name=trafo).get_LV_bus().PL_pu -= dP
                 elif attr == "QL":
-                    sys.get_transformer(name=trafo).get_LV_bus().QL_pu -= 0 * dQ
+                    sys.get_transformer(name=trafo).get_LV_bus().QL_pu -= dQ
 
                 # Select delta
                 if attr == "n":
@@ -1208,6 +1221,12 @@ class MPC_controller(Controller):
         """
         The return type is a 1D np.ndarray, as implemented in cvxopt_solve_qp.
         """
+        # print(self.P_matrix)
+        # print(self.q_matrix)
+        # print(self.G_matrix)
+        # print(self.h_matrix)
+        # exit()
+
         return utils.cvxopt_solve_qp(
             P=self.P_matrix, q=self.q_matrix, G=self.G_matrix, h=self.h_matrix
         )
@@ -1244,12 +1263,6 @@ class MPC_controller(Controller):
         dQ = x[2 * self.T : 3 * self.T]
         slacks = x[-4 * self.T :]
 
-        print(f"\n\nIteration {self.current_iter} of MPC controller\n")
-        print("Solution to the optimization problem:\n")
-        print(f"dr = {dr}")
-        print(f"dP = {dP}")
-        print(f"dQ = {dQ}")
-        print(f"slacks = {slacks}\n")
 
         # Store solutions from this iteration. The elements of these lists are
         # themselves 1D np.ndarrays.
@@ -1307,11 +1320,19 @@ class MPC_controller(Controller):
                 )
 
         # Print some progress
+        print(f"\n\nIteration {self.current_iter} of MPC controller\n")
         u_meas, NLI_meas, VT_meas, VD_meas = self.get_measurements()
-        print("\n\nMeasurements by MPC: u", u_meas.T, "\n")
+        print("\nMeasurements by MPC: u", u_meas.T, "\n")
         print("Measurements by MPC: NLI", NLI_meas.T, "\n")
         print("Measurements by MPC: VT", VT_meas.T, "\n")
         print("Measurements by MPC: VD", VD_meas.T, "\n")
+
+        print("\nSolution to the optimization problem:\n")
+        print(f"dr = {dr}")
+        print(f"dP = {dP}")
+        print(f"dQ = {dQ}")
+        print(f"slacks = {slacks}\n")
+
         print("Disturbances required by MPC", [str(d) for d in dists], "\n")
 
         return dists
@@ -1417,7 +1438,7 @@ class Coordinator(Controller):
             )
             # If a DERA controller was found, get the actions
             if controller is not None:
-                print(f"Sending {sigma} to element {inj.name}")
+                # print(f"Sending {sigma} to element {inj.name}")
                 dists += controller.get_actions(tk=tk, element=inj, sigma=sigma)
 
         return dists
@@ -1584,7 +1605,7 @@ class DERA_Controller(Controller):
                             power_0=Q0,
                             SN=SN)
 
-        print(f"Translating {sigma} to references {Pref} and {Qref}")
+        # print(f"Translating {sigma} to references {Pref} and {Qref}")
 
         # Finally, we send the references.
         return [

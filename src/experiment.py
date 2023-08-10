@@ -761,9 +761,14 @@ class Experiment:
 
         # Iterate over all cases
         for sys_description, system in self.systems:
-            for con in self.controllers:
-                for dis in self.disturbances:
-                    for ran in self.randomizations:
+            for con in self.controllers[::-1]:
+                for dis in self.disturbances[::-1]:
+                    for ran in self.randomizations[::-1]:
+                        # Skip iteration if no disturbance is applied and some
+                        # controller is being applied
+                        if dis[0] == "No dist." and con[0] != "No control":
+                            continue
+
                         # Create a deep copy of the system
                         ram = system.ram
                         system.ram = None
@@ -813,7 +818,7 @@ class Experiment:
                         ext = pyramses.extractor(map2out(self.traj_filename))
 
                         # Generate results
-                        self.build_visualizations(system=sys, extractor=ext)
+                        self.build_visualizations(system=sys, extractor=ext, cwd=cwd)
                         self.analyze_experiment()
                         self.document_experiment()
 
@@ -852,13 +857,23 @@ class Experiment:
 
     def build_visualizations(self,
                              system: pf_dynamic.System,
-                             extractor: pyramses.extractor) -> None:
+                             extractor: pyramses.extractor,
+                             cwd: str) -> None:
         """
         Build visualizations so that they can be compiled in LaTeX.
         """
 
+        # Fetch common directory for visualizations
+        vis_dir = os.path.join(cwd, self.vis_dir)
         for visualization in self.visualizations:
-            visualization.generate(system=system, extractor=extractor)
+            # Generate directory for each visualization
+            visualization.generate_dir(vis_dir=vis_dir)
+            # Generate visualization itself
+            visualization.generate(
+                system=system, 
+                extractor=extractor, 
+                vis_dir=vis_dir
+            )
 
     def analyze_experiment(self) -> None:
         """

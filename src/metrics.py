@@ -87,7 +87,7 @@ class ReactiveMargin(Metric):
     """
 
     name = "Discrete average of (final value of (IFLIM - IF))"
-    units = "pu"
+    units = "norm. wrt. iflim"
 
     def __init__(self, only_central: bool) -> None:
         """
@@ -129,7 +129,8 @@ class ReactiveMargin(Metric):
             time = data.time
             field_current = data.value
             delta_t = time[-1] - time[0]
-            integrand = float(generator.exciter.iflim) - field_current
+            # The following change returns this distance as normalized
+            integrand = (float(generator.exciter.iflim) - field_current)/float(generator.exciter.iflim)
             margin += np.trapz(x=time, y=integrand) / delta_t / N
 
         return margin
