@@ -749,13 +749,20 @@ class Experiment:
         # Finish simulation
         sys.ram.endSim()
 
-    def run(self, remove_trj: bool = True):
+    def run(self, remove_trj: bool = True, simulate_no_dist: bool = False,
+            simulate_no_control: bool = False) -> None:
         """
         Run the experiment.
 
         This run can include multiple systems, multiple controllers, multiple
         sets of disturbances, and multiple randomizations.
         """
+
+        if not simulate_no_dist:
+            self.disturbances = self.disturbances[1:]
+
+        if not simulate_no_control:
+            self.controllers = self.controllers[1:]
 
         # Add observables from visualizations
 
@@ -766,8 +773,11 @@ class Experiment:
                     for ran in self.randomizations[::-1]:
                         # Skip iteration if no disturbance is applied and some
                         # controller is being applied
-                        if dis[0] == "No dist." and con[0] != "No control":
+                        if dis[0] == "No dist.": # and con[0] != "No control":
                             continue
+
+                        # if dis[0] == "No dist.":
+                        #     continue
 
                         # Create a deep copy of the system
                         ram = system.ram
@@ -817,15 +827,6 @@ class Experiment:
                         # Add output files
                         ext = pyramses.extractor(map2out(self.traj_filename))
 
-                        # Generate results
-                        self.build_visualizations(system=sys, extractor=ext, cwd=cwd)
-                        self.analyze_experiment()
-                        self.document_experiment()
-
-                        # Remove the trj
-                        if remove_trj:
-                            os.remove(map2out(filename=self.traj_filename))
-
                         def map2metric(filename: str) -> str:
                             """
                             Append path to metrics folder.
@@ -854,6 +855,16 @@ class Experiment:
                             )
 
                             f.write(table + "\n")
+
+                        # Generate results
+                        self.build_visualizations(system=sys, extractor=ext, cwd=cwd)
+                        self.analyze_experiment()
+                        self.document_experiment()
+
+                        # Remove the trj
+                        if remove_trj:
+                            os.remove(map2out(filename=self.traj_filename))
+
 
     def build_visualizations(self,
                              system: pf_dynamic.System,

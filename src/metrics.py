@@ -50,19 +50,7 @@ class VoltageIntegral(Metric):
         
         # The computation of this metric only includes load buses, as it is
         # their voltages what one tries to keep within limits.
-        if self.only_central:
-            secondary_buses = [
-                transformer.get_LV_bus()
-                for transformer in system.transformers
-                if transformer.touches(location="CENTRAL")
-            ]
-            load_buses = []
-            for bus in secondary_buses:
-                load_buses += list(system.isolate_buses_by_kV(starting_bus=bus))
-        else:
-            load_buses = [bus for bus in system.buses 
-                        if any(inj.bus is bus for inj in system.injectors
-                                if isinstance(inj, records.Load))]
+        load_buses = [b for b in system.buses if hasattr(b, "is_monitored")]
             
         # It is useful that the indicator averages the deviation across several
         # buses, hence we consider the number of such buses.
@@ -164,7 +152,7 @@ class ControlEffort(Metric):
         
         DERAs = [inj 
                  for inj in system.injectors 
-                 if isinstance(inj, records.DERA)]
+                 if isinstance(inj, records.DERA) and hasattr(inj, "is_monitored")]
         N = len(DERAs)
         
         effort = 0
@@ -278,7 +266,7 @@ class PowerReserve(Metric):
         
         DERAs = [inj 
                  for inj in system.injectors 
-                 if isinstance(inj, records.DERA)]
+                 if isinstance(inj, records.DERA) and hasattr(inj, "is_monitored")]
         N = len(DERAs)
         
         reserve_MVA = 0

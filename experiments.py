@@ -80,7 +80,7 @@ def get_base_experiment(
     )
 
     bus_4032 = system.get_bus("4032")
-    line_4032_4044 = system.get_branches_between("4032", "4044")
+    line_4032_4044 = system.get_branches_between("4032", "4044")[0]
 
     exp.add_disturbances(
         "4032-4044",
@@ -112,7 +112,8 @@ def get_base_experiment(
             injector, "is_monitored"
         ):
             exp.add_observables(
-                Observable(injector, "Pgen"), Observable(injector, "Qgen")
+                # Observable(injector, "Pgen"), 
+                Observable(injector, "all")
             )
 
     for transformer in system.transformers:
@@ -134,10 +135,11 @@ def get_base_experiment(
 
     # Cite paper by Fabozzi noting that the step can
     # make discrete events to shift.
-    MINUTES = 10
+    MINUTES = 10.0
     exp.set_solver_and_horizon(
         solver_settings_dict={"max_h": 0.001, "min_h": 0.001},
-        horizon=MINUTES * 60,
+        # horizon=MINUTES * 60,
+        horizon=0.5,
     )
 
     exp.set_RAMSES_settings(
@@ -224,35 +226,50 @@ if __name__ == "__main__":
         VT_fun=get_voltage_bound(V_min_pu=0.900, V_max_pu=1.100),
     )
 
-    def get_input_weight(value: float) -> callable:
-        def weight(
-            element: Union[records.Bus, records.Branch], Nc: int, iter: int
-        ) -> np.ndarray:
-            return value * np.ones([Nc, 1])
+    # Define weights
+    WEIGHT_dr = 1e-3
+    WEIGHT_dP = 0
+    WEIGHT_dQ = 4.0e-3
+    WEIGHT_r_devs  = 0
+    WEIGHT_P_devs = 0
+    WEIGHT_Q_devs = 0
+    WEIGHT_V_slacks = 1
+    WEIGHT_NLI_slacks = 10
 
-        return weight
+    def dr_weight(transformer: records.Branch, Nc: int, iter: int) -> np.ndarray:
+        return np.full([Nc, 1], WEIGHT_dr)
+    
+    def dP_weight(bus: records.Bus, Nc: int, iter: int) -> np.ndarray:
+        return np.full([Nc, 1], WEIGHT_dP)
 
-    def get_slack_weight(value: float) -> callable:
-        def weight(element, Np: int, iter: int) -> tuple[float, float]:
-            return value, value
+    def dQ_weight(bus: records.Bus, Nc: int, iter: int) -> np.ndarray:
+        return np.full([Nc, 1], WEIGHT_dQ)
 
-        return weight
+    def r_devs_weight(transformer: records.Branch, Nc: int, iter: int) -> np.ndarray:
+        return np.full([Nc, 1], WEIGHT_r_devs)
 
-    def no_input_weight(
-        element: Union[records.Bus, records.Branch], Nc: int, iter: int
-    ) -> np.ndarray:
-        return np.zeros([Nc, 1])
+    def P_devs_weight(bus: records.Bus, Nc: int, iter: int) -> np.ndarray:
+        return np.full([Nc, 1], WEIGHT_P_devs)
+
+    def Q_devs_weight(bus: records.Bus, Nc: int, iter: int) -> np.ndarray:
+        return np.full([Nc, 1], WEIGHT_Q_devs)
+
+    def V_slacks_weight(bus: records.Bus, Np: int, iter: int) -> np.ndarray:
+        return WEIGHT_V_slacks, WEIGHT_V_slacks
+    
+    def NLI_slacks_weight(bus: records.Bus, Np: int, iter: int) -> np.ndarray:
+        return WEIGHT_NLI_slacks, WEIGHT_NLI_slacks
 
     # All weights are, indeed, being set.
     mpc.set_weights(
-        dr_fun=get_input_weight(1e-3), # the least expensive
-        dP_fun=get_input_weight(0.0), # suppressed anyway
-        dQ_fun=get_input_weight(5e-3), # more expensive than tap changes
-        r_devs_fun=no_input_weight,
-        P_devs_fun=no_input_weight,
-        Q_devs_fun=no_input_weight,
-        slacks_fun=get_slack_weight(1.0),  # voltage slacks
-        NLI_slacks_fun=get_slack_weight(10.0),  # NLI slacks (most expensive)
+        dr_fun=dr_weight,
+        dP_fun=dP_weight,
+        dQ_fun=dQ_weight,
+        r_devs_fun=r_devs_weight,
+        P_devs_fun=P_devs_weight,
+        Q_devs_fun=Q_devs_weight,
+        slacks_fun=V_slacks_weight, 
+        NLI_slacks_fun=NLI_slacks_weight, 
     )
 
     # This reset is important
@@ -293,10 +310,14 @@ if __name__ == "__main__":
     exp.add_controllers("MPC only", mpc, *coordinators, DER_controller)
 
     with Timer("Experiment on T-only system"):
-        exp.run(remove_trj=False)
+        exp.run(remove_trj=False, simulate_no_control=True)
 
     # \section{Experiment on the \gls{T-D} system}
-    # Experiments with large system:
-    # exp, system = get_base_experiment("Big sys.", PENETRATION, FREQUENCY, HEADROOM, disaggregate=True)
-    # with Timer("Experiment on T-D system"):
-    #     exp.run(remove_trj=True)
+    
+    with Timer("Building and setting experiment on T-D system"):
+        exp, system = get_base_experiment("Big sys.", PENETRATION, FREQUENCY, HEADROOM, disaggregate=True)
+        exp.add_controllers("MPC only", mpc, *coordinators, DER_controller)
+
+    with Timer("Running experiment on T-D system"):
+        exp.run(remove_trj=False)
+

@@ -143,6 +143,7 @@ class CentralVoltages(Visualization):
                  vis_dir: str) -> None:
         
         central_buses = (bus for bus in system.buses if bus.location == "CENTRAL")
+        # central_buses = [b for b in system.buses if hasattr(b, "is_monitored")]
 
         plt.figure()
         for bus in central_buses:
@@ -229,7 +230,9 @@ class DERAPowers(Visualization):
                  vis_dir: str) -> None:
         
         # Locate DERAs
-        DERAs = (inj for inj in system.injectors if isinstance(inj, records.DERA))
+        # DERAs = (inj for inj in system.injectors if isinstance(inj, records.DERA))
+        DERAs = [inj for inj in system.injectors
+                 if isinstance(inj, records.DERA) and hasattr(inj, "is_monitored")]
 
         # Draw one picture per DERA
         for DERA in DERAs:

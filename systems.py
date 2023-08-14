@@ -228,7 +228,11 @@ def place_DERs(
 def get_T_system(
     penetration: float, frequency: float, headroom: float
 ) -> pf.System:
-    return place_DERs(get_nordic(), penetration, frequency, headroom)
+    T_system = place_DERs(get_nordic(), penetration, frequency, headroom)
+    DERs = [i for i in T_system.injectors if isinstance(i, rec.DERA)]
+    for element in T_system.buses + DERs:
+        element.is_monitored = True
+    return T_system
 
 
 # \section{Construction of the \glspl{DN}}
@@ -393,7 +397,7 @@ def get_TD_system(
     monitored_buses = random.sample(central_buses, N_monitored_buses)
     monitored_DERs = random.sample(DERs, N_monitored_DERs)
 
-    for element in monitored_buses + monitored_DERs:
+    for element in monitored_buses + central_secondaries + monitored_DERs:
         element.is_monitored = True
 
     return nordic_with_DERs
@@ -412,6 +416,9 @@ if __name__ == "__main__":
         T_system = get_T_system(penetration, frequency, headroom)
         with open("temp_T.txt", "w") as f:
             f.write(T_system.generate_table())
+        
+        with open("temp_T_twin.txt", "w") as f:
+            f.write(T_system.twin.generate_table())
 
         TD_system = get_TD_system(
             penetration,
@@ -420,5 +427,9 @@ if __name__ == "__main__":
             N_monitored_buses=100,
             N_monitored_DERs=100,
         )
+
+        # Print a message here to see the twin. Also compare with the previous one.
         with open("temp_TD.txt", "w") as f:
             f.write(TD_system.generate_table())
+        with open("temp_TD_twin.txt", "w") as f:
+            f.write(TD_system.twin.generate_table())
