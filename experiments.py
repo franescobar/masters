@@ -135,11 +135,10 @@ def get_base_experiment(
 
     # Cite paper by Fabozzi noting that the step can
     # make discrete events to shift.
-    MINUTES = 10.0
+    MINUTES = 8
     exp.set_solver_and_horizon(
         solver_settings_dict={"max_h": 0.001, "min_h": 0.001},
-        # horizon=MINUTES * 60,
-        horizon=0.5,
+        horizon=MINUTES * 60,
     )
 
     exp.set_RAMSES_settings(
@@ -313,11 +312,11 @@ if __name__ == "__main__":
         exp.run(remove_trj=False, simulate_no_control=True)
 
     # \section{Experiment on the \gls{T-D} system}
-    
+
     with Timer("Building and setting experiment on T-D system"):
         exp, system = get_base_experiment("Big sys.", PENETRATION, FREQUENCY, HEADROOM, disaggregate=True)
         exp.add_controllers("MPC only", mpc, *coordinators, DER_controller)
 
-    with Timer("Running experiment on T-D system"):
-        exp.run(remove_trj=False)
+    # with Timer("Running experiment on T-D system"):
+    #     exp.run(remove_trj=False)
 

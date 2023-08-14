@@ -39,6 +39,9 @@ class VoltageIntegral(Metric):
         if not isinstance(only_central, bool):
             raise ValueError("only_central must be a boolean.")
         
+        if not only_central:
+            raise NotImplementedError("Can only process buses from the central area")
+        
         self.only_central = only_central
 
         if only_central:
@@ -50,8 +53,15 @@ class VoltageIntegral(Metric):
         
         # The computation of this metric only includes load buses, as it is
         # their voltages what one tries to keep within limits.
-        load_buses = [b for b in system.buses if hasattr(b, "is_monitored")]
-            
+        load_buses = []
+        for transformer in system.transformers:
+            if transformer.touches("CENTRAL"):
+                secondary = transformer.get_LV_bus()
+                buses_downstream = system.isolate_buses_by_kV(starting_bus=secondary)
+                for bus in buses_downstream:
+                    if hasattr(bus, "is_monitored"):
+                        load_buses.append(bus)
+        
         # It is useful that the indicator averages the deviation across several
         # buses, hence we consider the number of such buses.
         N = len(load_buses)
