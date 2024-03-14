@@ -45,6 +45,7 @@ def get_base_experiment(
     frequency: float = 0.15,
     headroom: float = 0.2,
     disaggregate: bool = False,
+    visualize: bool = True,
 ) -> tuple[Experiment, pf_dynamic.System]:
     if disaggregate:
         system = systems.get_TD_system(
@@ -89,12 +90,13 @@ def get_base_experiment(
         Disturbance(1.1, line_4032_4044, "status", 0),
     )
 
-    exp.add_visualizations(
-        visual.NLIPlots(receiving_buses=("4041", "4042")),
-        visual.CentralVoltages(),
-        visual.FieldCurrents(),
-        visual.DERAPowers(),
-    )
+    if visualize:
+        exp.add_visualizations(
+            visual.NLIPlots(receiving_buses=("4041", "4042")),
+            visual.CentralVoltages(),
+            visual.FieldCurrents(),
+            visual.DERAPowers(),
+        )
 
     for bus in system.buses:
         if bus.base_kV > 100.0 or hasattr(bus, "is_monitored"):
@@ -126,6 +128,8 @@ def get_base_experiment(
         metrics.VoltageIntegral(only_central=True),
         metrics.NLI(),
         metrics.TapMovements(only_central=True),
+        metrics.TapDown(only_central=True),
+        metrics.TapUp(only_central=True),
         metrics.ControlEffort(power_type="P"),
         metrics.ControlEffort(power_type="Q"),
         metrics.PowerReserve(),
@@ -139,6 +143,7 @@ def get_base_experiment(
     exp.set_solver_and_horizon(
         solver_settings_dict={"max_h": 0.001, "min_h": 0.001},
         horizon=MINUTES * 60,
+        # horizon=13
     )
 
     exp.set_RAMSES_settings(
@@ -147,8 +152,21 @@ def get_base_experiment(
 
     return exp, system
 
+def run_experiment(
+    letter: str = "A",
+    horizons: int = 3, 
+    run_base: bool = True, 
+    run_LC: bool = True, 
+    run_MPC_T: bool = True, 
+    run_MPC_TD: bool = True,
+    visualize: bool = True,
+    weight_dP: float = 0,
+    max_delta_P_pu: float = 1e-6,
+) -> None:
+    """
+    Run the experiment as it will appear in the thesis.
+    """
 
-if __name__ == "__main__":
     # Constants:
     PENETRATION = 0.20
     FREQUENCY = 0.15
@@ -156,7 +174,8 @@ if __name__ == "__main__":
 
     # Experiments with small system:
     exp, T_system = get_base_experiment(
-        "Small sys.", PENETRATION, FREQUENCY, HEADROOM, disaggregate=False
+        f"Small N{horizons} {letter}", PENETRATION, FREQUENCY, HEADROOM, disaggregate=False,
+        visualize=visualize
     )
 
     # \section{Benchmark controller}
@@ -176,7 +195,8 @@ if __name__ == "__main__":
         for t in central_transformers
     ]
 
-    exp.add_controllers("Pabon only", *local_controllers)
+    if run_LC:
+        exp.add_controllers("Pabon only", *local_controllers)
 
     # \section{Proposed \gls{MPC} scheme}
 
@@ -189,7 +209,7 @@ if __name__ == "__main__":
     mpc.add_observed_corridor("4041", ["4031"])
     mpc.add_observed_corridor("4042", ["4021", "4032"])
     # Done as seen in the literature
-    mpc.set_horizons(Np=3, Nc=3)
+    mpc.set_horizons(Np=horizons, Nc=horizons)
     mpc.set_period(10)
 
     # Has no effect
@@ -218,7 +238,7 @@ if __name__ == "__main__":
 
     # All bounds are being, indeed, set
     mpc.set_bounds(
-        P_fun=get_power_bound(max_delta_pu=1e-6), # suppressed
+        P_fun=get_power_bound(max_delta_pu=max_delta_P_pu), # suppressed
         Q_fun=get_power_bound(max_delta_pu=1.0), # 100 Mvar per time step
         NLI_min=0.09,
         VD_fun=get_voltage_bound(V_min_pu=0.975, V_max_pu=1.025),
@@ -227,7 +247,7 @@ if __name__ == "__main__":
 
     # Define weights
     WEIGHT_dr = 1e-3
-    WEIGHT_dP = 0
+    WEIGHT_dP = weight_dP
     WEIGHT_dQ = 4.0e-3
     WEIGHT_r_devs  = 0
     WEIGHT_P_devs = 0
@@ -306,17 +326,57 @@ if __name__ == "__main__":
 
     DER_controller = control.DERA_Controller()
 
-    exp.add_controllers("MPC only", mpc, *coordinators, DER_controller)
+    if run_MPC_T:
+        exp.add_controllers("MPC only", mpc, *coordinators, DER_controller)
 
     with Timer("Experiment on T-only system"):
-        exp.run(remove_trj=False, simulate_no_control=True)
+        exp.run(remove_trj=False, simulate_no_control=run_base)
 
     # \section{Experiment on the \gls{T-D} system}
 
-    with Timer("Building and setting experiment on T-D system"):
-        exp, system = get_base_experiment("Big sys.", PENETRATION, FREQUENCY, HEADROOM, disaggregate=True)
-        exp.add_controllers("MPC only", mpc, *coordinators, DER_controller)
+    if run_MPC_TD:
+        with Timer("Building and setting experiment on T-D system"):
+            exp, system = get_base_experiment(f"Big sys. {letter}", PENETRATION, FREQUENCY, HEADROOM, disaggregate=True, visualize=visualize)
+            exp.add_controllers("MPC only", mpc, *coordinators, DER_controller)
 
-    # with Timer("Running experiment on T-D system"):
-    #     exp.run(remove_trj=False)
+        with Timer("Running experiment on T-D system"):
+            exp.run(remove_trj=False)
 
+if __name__ == "__main__":
+
+    # Experiments from the thesis (dNLI/dQ may be overwritten)
+    # run_experiment(letter="A", 
+    #                horizons=3, 
+    #                run_base=False, 
+    #                run_LC=False, 
+    #                run_MPC_T=True, 
+    #                run_MPC_TD=False, 
+    #                visualize=True)
+
+    # Experiment suggested by J. D. changing the horizons
+    # with Timer(name="Sensitivity to horizons"):
+    #     for i in range(1, 5+1):
+    #         run_experiment(
+    #             letter="B", 
+    #             horizons=i, 
+    #             run_base=False, 
+    #             run_LC=False, 
+    #             run_MPC_T=True, # perform only on the T-D system
+    #             run_MPC_TD=False,
+    #             visualize=True,
+    #         )
+
+    # Experiment changing the weights and bounds of P
+    with Timer(name="Effect of P contribution"):
+        for id, i in enumerate([4, 8, 12, 16]):
+            run_experiment(
+                letter="DEFG"[id],
+                horizons=3,
+                run_base=False,
+                run_LC=False,
+                run_MPC_T=True,
+                run_MPC_TD=False,
+                visualize=True,
+                weight_dP=i*1e-3,
+                max_delta_P_pu=1,
+            )

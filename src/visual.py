@@ -236,14 +236,14 @@ class DERAPowers(Visualization):
 
         # Draw one picture per DERA
         for DERA in DERAs:
-            # Extract powers
+            # Extract powers in SI units
             data_P = extractor.getInj(DERA.name).Pgen
             data_Q = extractor.getInj(DERA.name).Qgen
             # Extract time from either dataset
             time = data_P.time
             # Extract values
-            P = data_P.value
-            Q = data_Q.value
+            P = data_P.value * float(DERA.Snom_MVA)
+            Q = data_Q.value * float(DERA.Snom_MVA)
             # Reduce them
             x_P, y_P = utils.reduce(
                 x=time,
@@ -259,26 +259,26 @@ class DERAPowers(Visualization):
             )
             # Add them to the plot
             plt.figure()
-            plt.plot(x_P, y_P, label="P (pu)")
-            plt.plot(x_Q, y_Q, label="Q (pu)")
+            plt.plot(x_P, y_P, label="P (MW)")
+            plt.plot(x_Q, y_Q, label="Q (Mvar)")
             plt.legend()
             plt.xlabel("Time (s)")
             plt.ylabel("Power")
             name = DERA.bus.name
-            plt.title(f"Generated powers at bus {name} in the DERA's base")
+            plt.title(f"Generated powers at bus {name} in SI units")
             self.save_figure(vis_dir=vis_dir, filename=f"time_DERApower_{name}.pdf")
             # Save the data to files
             self.save_data(
                 vis_dir,
                 f"time_DERApowerP_{name}.txt",
-                "Time (s), P (pu in DERA base)",
+                "Time (s), P (MW)",
                 x_P,
                 y_P,
             )
             self.save_data(
                 vis_dir,
                 f"time_DERApowerQ_{name}.txt",
-                "Time (s), Q (pu in DERA base)",
+                "Time (s), Q (Mvar)",
                 x_Q,
                 y_Q,
             )

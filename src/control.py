@@ -22,6 +22,7 @@ import os
 import math
 from collections.abc import Sequence
 from typing import Union
+import time
 
 # Other modules
 import numpy as np
@@ -100,6 +101,9 @@ class MPC_controller(Controller):
         # (i.e., sooner or later within the same prediction horizon). This
         # is kept track of by the attribute current_iter.
         self.current_iter: int = 0
+
+        # To test performance, it might be useful to solve the solution times.
+        self.QP_solution_times_ns = []
 
         # After having solved the optimization, we keep track of the solution in
         # the following containers. This was particularly useful in the paper
@@ -998,7 +1002,11 @@ class MPC_controller(Controller):
                 der_VD = (np.array(VDs_1) - np.array(VDs_0)) / dx
 
                 if attr == "QL":
-                    der_NLI *= 0
+                    # The following line overwrites the sensitivity of the NLI
+                    # to the reactive power. One of the shortcomings of my
+                    # thesis is that this sensitivity was overwritten to zero.
+                    # der_NLI *= 0
+                    pass
 
                 # Compute and store derivatives
                 self.partial_u_N[:, attr_no * self.T + trafo_no] = der_NLI
@@ -1253,7 +1261,10 @@ class MPC_controller(Controller):
         self.update_measurement_dependent_matrices()
 
         # Solve optimization
+        t0_ns = time.time_ns()
         x = self.solve_optimization()
+        tf_ns = time.time_ns()
+        self.QP_solution_times_ns.append(tf_ns - t0_ns)
         self.solutions.append(x)
 
         # Filter out solutions. Recall that x is a 1D np.ndarray, as implemented

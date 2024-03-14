@@ -855,6 +855,21 @@ class Experiment:
                             )
 
                             f.write(table + "\n")
+                        
+                        # For MPC, record times
+                        if any(isinstance(c, control.MPC_controller) for c in sys.controllers):
+                            MPC = next(c for c in sys.controllers if isinstance(c, control.MPC_controller))
+                            with open(map2metric("times.txt"), "w") as f:
+                                t_min_ns = min(MPC.QP_solution_times_ns)
+                                t_max_ns = max(MPC.QP_solution_times_ns)
+                                t_avg_ns = np.mean(MPC.QP_solution_times_ns)
+                                f.write("Solution of the quadratic program:\n")
+                                f.write(f"t_min (ns): {t_min_ns:.3f}\n")
+                                f.write(f"t_max (ns): {t_max_ns:.3f}\n")
+                                f.write(f"t_avg (ns): {t_avg_ns:.3f}\n")
+                                f.write(f"iterations: {MPC.current_iter}\n")
+                                if len(MPC.solutions) > 0:
+                                    f.write(f"decision vars: {len(MPC.solutions[0])}\n")
 
                         # Generate results
                         self.build_visualizations(system=sys, extractor=ext, cwd=cwd)

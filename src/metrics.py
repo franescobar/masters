@@ -232,6 +232,97 @@ class TapMovements(Metric):
         
         return remaining_movements 
 
+class TapUp(Metric):
+    """
+    Measure the number of tap movements up.
+    """
+
+    units = "movements"
+
+    def __init__(self, only_central: bool) -> None:
+        """
+        If only_central is True, then only the central transformers are considered.
+        """
+
+        if not isinstance(only_central, bool):
+            raise ValueError("only_central must be a boolean.")
+        
+        self.only_central = only_central
+        self.name = "Total number of (tap movements up depressing)"
+        if only_central:
+            self.name += " - CENTRAL"
+
+    def evaluate(self,
+                 system: pf_dynamic.System,
+                 extractor: pyramses.extractor) -> float:
+        
+        # DCTLs = filter(lambda r: isinstance(r, records.DCTL), system.records)
+
+        if self.only_central:
+            DCTLs = []
+            for transformer in system.transformers:
+                if transformer.touches(location="CENTRAL"):
+                    DCTLs.append(transformer.OLTC.OLTC_controller)
+        else:
+            DCTLs = filter(lambda r: isinstance(r, records.DCTL), 
+                           system.records)
+
+        movements_up = 0
+        for DCTL in DCTLs:
+            data = extractor.getDctl(dctlname=DCTL.name).ratio
+            ratio_cleaned = np.round(data.value, decimals=2)
+            for t_index in range(len(ratio_cleaned)-1):
+                r_current = ratio_cleaned[t_index]
+                r_next = ratio_cleaned[t_index+1]
+                if r_current < r_next and abs(r_current - r_next) > 0.01/2:
+                    movements_up += 1
+        return movements_up
+
+class TapDown(Metric):
+    """
+    Measure the number of tap movements down.
+    """
+
+    units = "movements"
+
+    def __init__(self, only_central: bool) -> None:
+        """
+        If only_central is True, then only the central transformers are considered.
+        """
+
+        if not isinstance(only_central, bool):
+            raise ValueError("only_central must be a boolean.")
+        
+        self.only_central = only_central
+        self.name = "Total number of (tap movements down boosting)"
+        if only_central:
+            self.name += " - CENTRAL"
+
+    def evaluate(self,
+                 system: pf_dynamic.System,
+                 extractor: pyramses.extractor) -> float:
+        
+        # DCTLs = filter(lambda r: isinstance(r, records.DCTL), system.records)
+
+        if self.only_central:
+            DCTLs = []
+            for transformer in system.transformers:
+                if transformer.touches(location="CENTRAL"):
+                    DCTLs.append(transformer.OLTC.OLTC_controller)
+        else:
+            DCTLs = filter(lambda r: isinstance(r, records.DCTL), 
+                           system.records)
+
+        movements_down = 0
+        for DCTL in DCTLs:
+            data = extractor.getDctl(dctlname=DCTL.name).ratio
+            ratio_cleaned = np.round(data.value, decimals=2)
+            for t_index in range(len(ratio_cleaned)-1):
+                r_current = ratio_cleaned[t_index]
+                r_next = ratio_cleaned[t_index+1]
+                if r_current > r_next and abs(r_current - r_next) > 0.01/2:
+                    movements_down += 1
+        return movements_down
 
 class NLI(Metric):
     """
